@@ -38,3 +38,10 @@ def test_show_run_json_outputs_payload(tmp_path, monkeypatch):
     result = runner.invoke(app, ["show-run", "run-test", "--json"])
     assert result.exit_code == 0
     assert '"run_id":"run-test"' in result.stdout or '"run_id": "run-test"' in result.stdout
+
+
+def test_doctor_reports_runtime(monkeypatch):
+    monkeypatch.setenv("OPENLVM_RUNTIME", "simulated")
+    result = runner.invoke(app, ["doctor"])
+    assert result.exit_code == 0
+    assert "simulated" in result.stdout

@@ -36,6 +36,13 @@ Build and install:
 
 If Zig is not installed yet, you can still run the Python layer in simulated mode. The CLI will fall back automatically when the shared library is unavailable.
 
+You can also force the backend explicitly:
+
+```powershell
+$env:OPENLVM_RUNTIME = "simulated"
+openlvm doctor
+```
+
 Run tests:
 
 ```powershell

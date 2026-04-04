@@ -1,6 +1,8 @@
 """OpenLVM CLI powered by Typer and Rich."""
 
 import json
+import os
+import shutil
 from pathlib import Path
 
 import typer
@@ -8,9 +10,10 @@ from rich.console import Console
 from rich.table import Table
 
 from .eval_store import EvalStore
+from .integrations import DeepEvalAdapter, OpenLLMetryAdapter, PromptfooAdapter
 from .mcp_server import serve as serve_mcp
 from .orchestrator import TestOrchestrator
-from .runtime import OpenLVMError, create_runtime
+from .runtime import OpenLVMError, OpenLVMRuntime, create_runtime
 
 app = typer.Typer(help="OpenLVM - Performance-first Agent-Native VM Runtime")
 console = Console()
@@ -28,6 +31,28 @@ def info():
         console.print(f"Active Agents: [yellow]{runtime.get_active_agent_count()}[/yellow]")
     except Exception as exc:
         console.print(f"[bold red]Failed to load runtime:[/bold red] {exc}")
+
+
+@app.command()
+def doctor():
+    """Inspect local OpenLVM readiness."""
+    runtime = create_runtime()
+    zig_installed = shutil.which("zig") is not None
+    runtime_mode = os.getenv("OPENLVM_RUNTIME") or "auto"
+    shared_lib = OpenLVMRuntime._default_library_path()
+
+    table = Table(title="OpenLVM Doctor")
+    table.add_column("Check", style="cyan")
+    table.add_column("Status", style="green")
+    table.add_column("Detail", style="magenta")
+    table.add_row("runtime backend", "ok", runtime.backend)
+    table.add_row("runtime mode", "ok", runtime_mode)
+    table.add_row("zig", "ok" if zig_installed else "missing", "installed" if zig_installed else "not on PATH")
+    table.add_row("shared library", "ok" if shared_lib.exists() else "missing", str(shared_lib))
+    table.add_row("promptfoo adapter", "ok", "available" if PromptfooAdapter().available else "npx not found")
+    table.add_row("deepeval adapter", "ok", "available" if DeepEvalAdapter().available else "fallback mode")
+    table.add_row("openllmetry adapter", "ok", "available" if OpenLLMetryAdapter().available else "fallback mode")
+    console.print(table)
 
 
 @app.command()

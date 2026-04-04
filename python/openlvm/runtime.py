@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ctypes
+import os
 import struct
 import sys
 from pathlib import Path
@@ -289,8 +290,11 @@ class OpenLVMRuntime(BaseRuntime):
 
 def create_runtime(prefer_simulated: bool = False) -> BaseRuntime:
     """Create the best available runtime for the current environment."""
-    if prefer_simulated:
+    runtime_mode = os.getenv("OPENLVM_RUNTIME", "").strip().lower()
+    if prefer_simulated or runtime_mode == "simulated":
         return SimulatedOpenLVMRuntime()
+    if runtime_mode == "zig":
+        return OpenLVMRuntime()
     try:
         return OpenLVMRuntime()
     except FileNotFoundError:
