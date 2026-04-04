@@ -14,6 +14,8 @@ From `python/` after installing the package:
 
 ```powershell
 openlvm info
+openlvm doctor
+openlvm bench --count 1000
 openlvm init
 openlvm test ..\examples\swarm.yaml --scenarios 25 --chaos network_delay
 openlvm results

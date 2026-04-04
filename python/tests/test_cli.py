@@ -45,3 +45,10 @@ def test_doctor_reports_runtime(monkeypatch):
     result = runner.invoke(app, ["doctor"])
     assert result.exit_code == 0
     assert "simulated" in result.stdout
+
+
+def test_bench_runs_with_simulated_runtime(monkeypatch):
+    monkeypatch.setenv("OPENLVM_RUNTIME", "simulated")
+    result = runner.invoke(app, ["bench", "--count", "5"])
+    assert result.exit_code == 0
+    assert "Forks: 5" in result.stdout

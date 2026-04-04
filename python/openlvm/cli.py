@@ -3,6 +3,7 @@
 import json
 import os
 import shutil
+import time
 from pathlib import Path
 
 import typer
@@ -53,6 +54,26 @@ def doctor():
     table.add_row("deepeval adapter", "ok", "available" if DeepEvalAdapter().available else "fallback mode")
     table.add_row("openllmetry adapter", "ok", "available" if OpenLLMetryAdapter().available else "fallback mode")
     console.print(table)
+
+
+@app.command()
+def bench(
+    count: int = typer.Option(1000, "--count", "-n", help="Number of forks to create"),
+):
+    """Benchmark the active runtime backend."""
+    runtime = create_runtime()
+    parent = runtime.register_agent(0)
+    started = time.perf_counter()
+    children = runtime.fork_many(parent, count)
+    elapsed_s = max(time.perf_counter() - started, 1e-9)
+
+    console.print(
+        f"[bold cyan]OpenLVM Benchmark[/bold cyan]\n"
+        f"Backend: {runtime.backend}\n"
+        f"Forks: {len(children)}\n"
+        f"Elapsed: {elapsed_s * 1000:.2f}ms\n"
+        f"Rate: {len(children) / elapsed_s:.0f} forks/sec"
+    )
 
 
 @app.command()
