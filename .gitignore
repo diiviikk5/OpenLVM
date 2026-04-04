@@ -1,0 +1,47 @@
+# Zig
+zig-out/
+zig-cache/
+.zig-cache/
+
+# Node / Next.js
+node_modules/
+.next/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+*.whl
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# OpenLVM runtime
+*.snapshot
+*.recording
+openlvm.db
+openlvm-results/
+
+# Build artifacts
+*.so
+*.dylib
+*.dll
+*.lib
+*.a
+*.o
+*.obj
