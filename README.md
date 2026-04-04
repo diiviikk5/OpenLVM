@@ -5,6 +5,7 @@ OpenLVM is an agent runtime and testing harness built around a Zig core and a Py
 The current repository state is aimed at getting to a first usable MVP:
 - Zig core exports the fork, replay, sandbox, snapshot, and chaos FFI surface.
 - Python provides a CLI, run orchestrator, local eval store, MCP entrypoint, and integration adapters.
+- The Python layer now has a simulated runtime backend, so you can exercise the product flow before building the Zig core.
 - Example configs and tests are included so the package can move into smoke testing once dependencies are installed.
 
 ## Current Commands
@@ -32,6 +33,8 @@ Build and install:
 ```powershell
 .\scripts\build.ps1
 ```
+
+If Zig is not installed yet, you can still run the Python layer in simulated mode. The CLI will fall back automatically when the shared library is unavailable.
 
 Run tests:
 

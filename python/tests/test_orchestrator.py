@@ -2,6 +2,7 @@ from pathlib import Path
 
 from openlvm.eval_store import EvalStore
 from openlvm.orchestrator import TestOrchestrator
+from openlvm.runtime import SimulatedOpenLVMRuntime
 
 
 class FakeRuntime:
@@ -39,3 +40,13 @@ def test_orchestrator_runs_suite_and_stores_results(tmp_path):
     assert run.agent_count == 3
     assert run.summary["passed"] + run.summary["warnings"] == 3
     assert store.get_run(run.run_id).run_id == run.run_id
+
+
+def test_orchestrator_records_runtime_backend_with_simulation(tmp_path):
+    store = EvalStore(tmp_path / "eval_store.db")
+    orchestrator = TestOrchestrator(runtime=SimulatedOpenLVMRuntime(), eval_store=store)
+    config_path = Path(__file__).resolve().parents[2] / "examples" / "swarm.yaml"
+
+    run = orchestrator.run_test_suite(config_path, scenarios=2)
+
+    assert run.metadata["runtime_backend"] == "simulated"

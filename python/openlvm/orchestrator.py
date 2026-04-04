@@ -11,21 +11,23 @@ from .config import load_config
 from .eval_store import EvalStore
 from .integrations import DeepEvalAdapter, OpenLLMetryAdapter, PromptfooAdapter
 from .models import AgentRunSummary, EvalRun, ScenarioRunResult, TestSuiteConfig
-from .runtime import OpenLVMRuntime
+from .runtime import BaseRuntime, create_runtime
 
 
 class TestOrchestrator:
     """Turn a suite config into an executable OpenLVM run and persist the result."""
 
+    __test__ = False
+
     def __init__(
         self,
-        runtime: Optional[OpenLVMRuntime] = None,
+        runtime: Optional[BaseRuntime] = None,
         eval_store: Optional[EvalStore] = None,
         deepeval_adapter: Optional[DeepEvalAdapter] = None,
         promptfoo_adapter: Optional[PromptfooAdapter] = None,
         openllmetry_adapter: Optional[OpenLLMetryAdapter] = None,
     ):
-        self.runtime = runtime or OpenLVMRuntime()
+        self.runtime = runtime or create_runtime()
         self.eval_store = eval_store or EvalStore()
         self.deepeval_adapter = deepeval_adapter or DeepEvalAdapter()
         self.promptfoo_adapter = promptfoo_adapter or PromptfooAdapter()
@@ -119,6 +121,7 @@ class TestOrchestrator:
                 "tracing_available": self.openllmetry_adapter.available,
                 "deepeval_available": self.deepeval_adapter.available,
                 "traces": trace_records,
+                "runtime_backend": getattr(self.runtime, "backend", "custom"),
             },
         )
         self.eval_store.store_run(run)

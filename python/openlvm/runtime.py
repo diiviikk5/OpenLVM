@@ -1,4 +1,4 @@
-"""Python FFI bindings for the OpenLVM Zig core runtime."""
+"""Python bindings and fallback runtime for OpenLVM."""
 
 from __future__ import annotations
 
@@ -18,12 +18,6 @@ CHAOS_MODE_CPU_THROTTLE = 5
 CHAOS_MODE_CLOCK_SKEW = 6
 CHAOS_MODE_TOOL_FAILURE = 7
 
-# Event types based on core/src/replay.zig
-EVENT_LLM_REQUEST = 0
-EVENT_LLM_RESPONSE = 1
-EVENT_TOOL_CALL = 2
-EVENT_TOOL_RESULT = 3
-
 
 class OpenLVMError(Exception):
     def __init__(self, code: int, message: str):
@@ -31,11 +25,121 @@ class OpenLVMError(Exception):
         super().__init__(f"{message} (Error code: {code})")
 
 
-class OpenLVMRuntime:
+class BaseRuntime:
+    """Common runtime interface used by the Python orchestration layer."""
+
+    backend = "unknown"
+
+    def register_agent(self, caps_bitmask: int) -> int:  # pragma: no cover - interface only
+        raise NotImplementedError
+
+    def terminate_agent(self, agent_id: int) -> None:  # pragma: no cover - interface only
+        raise NotImplementedError
+
+    def get_active_agent_count(self) -> int:  # pragma: no cover - interface only
+        raise NotImplementedError
+
+    def fork_agent(self, agent_id: int) -> int:  # pragma: no cover - interface only
+        raise NotImplementedError
+
+    def fork_many(self, agent_id: int, count: int) -> List[int]:  # pragma: no cover - interface only
+        raise NotImplementedError
+
+    def snapshot_create(self, agent_id: int) -> int:  # pragma: no cover - interface only
+        raise NotImplementedError
+
+    def replay_start(self, agent_id: int) -> int:  # pragma: no cover - interface only
+        raise NotImplementedError
+
+    def replay_stop(self, recording_id: int) -> None:  # pragma: no cover - interface only
+        raise NotImplementedError
+
+    def chaos_add_network_delay(self, agent_id: int, probability: float, delay_ms: int) -> None:  # pragma: no cover
+        raise NotImplementedError
+
+    def chaos_add_hallucination(self, agent_id: int, probability: float, corruption_rate: float) -> None:  # pragma: no cover
+        raise NotImplementedError
+
+    def chaos_get_network_delay(self, agent_id: int) -> int:  # pragma: no cover - interface only
+        raise NotImplementedError
+
+    def version(self) -> str:  # pragma: no cover - interface only
+        raise NotImplementedError
+
+
+class SimulatedOpenLVMRuntime(BaseRuntime):
+    """Pure Python fallback runtime for local testing before the Zig core is built."""
+
+    backend = "simulated"
+
+    def __init__(self):
+        self._next_id = 1
+        self._next_snapshot_id = 1
+        self._next_recording_id = 1
+        self._agents: dict[int, dict] = {}
+        self._chaos: dict[int, dict[str, float | int]] = {}
+
+    def register_agent(self, caps_bitmask: int) -> int:
+        agent_id = self._next_id
+        self._next_id += 1
+        self._agents[agent_id] = {"caps": caps_bitmask, "parent": None}
+        return agent_id
+
+    def terminate_agent(self, agent_id: int) -> None:
+        self._agents.pop(agent_id, None)
+        self._chaos.pop(agent_id, None)
+
+    def get_active_agent_count(self) -> int:
+        return len(self._agents)
+
+    def fork_agent(self, agent_id: int) -> int:
+        if agent_id not in self._agents:
+            raise OpenLVMError(-10, f"Unknown agent {agent_id}")
+        child_id = self._next_id
+        self._next_id += 1
+        self._agents[child_id] = {"caps": self._agents[agent_id]["caps"], "parent": agent_id}
+        return child_id
+
+    def fork_many(self, agent_id: int, count: int) -> List[int]:
+        return [self.fork_agent(agent_id) for _ in range(count)]
+
+    def snapshot_create(self, agent_id: int) -> int:
+        if agent_id not in self._agents:
+            raise OpenLVMError(-10, f"Unknown agent {agent_id}")
+        snapshot_id = self._next_snapshot_id
+        self._next_snapshot_id += 1
+        return snapshot_id
+
+    def replay_start(self, agent_id: int) -> int:
+        if agent_id not in self._agents:
+            raise OpenLVMError(-10, f"Unknown agent {agent_id}")
+        recording_id = self._next_recording_id
+        self._next_recording_id += 1
+        return recording_id
+
+    def replay_stop(self, recording_id: int) -> None:
+        return None
+
+    def chaos_add_network_delay(self, agent_id: int, probability: float, delay_ms: int) -> None:
+        self._chaos.setdefault(agent_id, {})["network_delay"] = delay_ms if probability > 0 else 0
+
+    def chaos_add_hallucination(self, agent_id: int, probability: float, corruption_rate: float) -> None:
+        self._chaos.setdefault(agent_id, {})["hallucination"] = corruption_rate if probability > 0 else 0.0
+
+    def chaos_get_network_delay(self, agent_id: int) -> int:
+        config = self._chaos.get(agent_id)
+        return int(config.get("network_delay", 0)) if config else 0
+
+    def version(self) -> str:
+        return "0.1.0-sim"
+
+
+class OpenLVMRuntime(BaseRuntime):
     """Thin wrapper around the shared Zig runtime."""
 
     _shared_lib: ClassVar[ctypes.CDLL | None] = None
     _instance_count: ClassVar[int] = 0
+    backend = "zig"
 
     def __init__(self, lib_path: Optional[str] = None):
         if OpenLVMRuntime._shared_lib is None:
@@ -181,3 +285,13 @@ class OpenLVMRuntime:
         minor = self._lib.openlvm_version_minor()
         patch = self._lib.openlvm_version_patch()
         return f"{major}.{minor}.{patch}"
+
+
+def create_runtime(prefer_simulated: bool = False) -> BaseRuntime:
+    """Create the best available runtime for the current environment."""
+    if prefer_simulated:
+        return SimulatedOpenLVMRuntime()
+    try:
+        return OpenLVMRuntime()
+    except FileNotFoundError:
+        return SimulatedOpenLVMRuntime()

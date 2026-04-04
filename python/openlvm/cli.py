@@ -10,7 +10,7 @@ from rich.table import Table
 from .eval_store import EvalStore
 from .mcp_server import serve as serve_mcp
 from .orchestrator import TestOrchestrator
-from .runtime import OpenLVMError, OpenLVMRuntime
+from .runtime import OpenLVMError, create_runtime
 
 app = typer.Typer(help="OpenLVM - Performance-first Agent-Native VM Runtime")
 console = Console()
@@ -22,8 +22,9 @@ def info():
     """Print system information and Zig runtime status."""
     console.print("[bold cyan]OpenLVM Runtime Info[/bold cyan]")
     try:
-        runtime = OpenLVMRuntime()
+        runtime = create_runtime()
         console.print(f"Version: [green]{runtime.version()}[/green]")
+        console.print(f"Backend: [cyan]{runtime.backend}[/cyan]")
         console.print(f"Active Agents: [yellow]{runtime.get_active_agent_count()}[/yellow]")
     except Exception as exc:
         console.print(f"[bold red]Failed to load runtime:[/bold red] {exc}")
