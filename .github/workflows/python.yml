@@ -1,0 +1,32 @@
+name: Python
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+
+jobs:
+  test-python:
+    runs-on: ubuntu-latest
+    env:
+      OPENLVM_RUNTIME: simulated
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install package
+        working-directory: python
+        run: python -m pip install -e ".[dev]"
+
+      - name: Run tests
+        run: python -m pytest python/tests -q
+
+      - name: CLI doctor
+        working-directory: python
+        run: python -m openlvm.cli doctor
