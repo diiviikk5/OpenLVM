@@ -1,5 +1,6 @@
 """OpenLVM CLI powered by Typer and Rich."""
 
+import json
 from pathlib import Path
 
 import typer
@@ -13,6 +14,7 @@ from .runtime import OpenLVMError, OpenLVMRuntime
 
 app = typer.Typer(help="OpenLVM - Performance-first Agent-Native VM Runtime")
 console = Console()
+DEFAULT_EXAMPLE_CONFIG = Path(__file__).resolve().parents[2] / "examples" / "swarm.yaml"
 
 
 @app.command()
@@ -87,6 +89,21 @@ def test(
 
 
 @app.command()
+def init(
+    output: Path = typer.Argument(Path("openlvm.yaml"), help="Where to write the starter config"),
+    force: bool = typer.Option(False, "--force", help="Overwrite an existing file"),
+):
+    """Create a starter OpenLVM suite config."""
+    if output.exists() and not force:
+        console.print(f"[bold red]Refusing to overwrite:[/bold red] {output}")
+        raise typer.Exit(code=1)
+
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(DEFAULT_EXAMPLE_CONFIG.read_text(encoding="utf-8"), encoding="utf-8")
+    console.print(f"[green]Wrote starter config:[/green] {output}")
+
+
+@app.command()
 def results(limit: int = typer.Option(10, "--limit", "-n", help="Number of recent runs to display")):
     """List recent stored runs from the local EvalStore."""
     runs = EvalStore().list_runs(limit=limit)
@@ -112,6 +129,32 @@ def results(limit: int = typer.Option(10, "--limit", "-n", help="Number of recen
             run.started_at,
         )
 
+    console.print(table)
+
+
+@app.command("show-run")
+def show_run(
+    run_id: str = typer.Argument("latest", help="Run id to inspect"),
+    json_output: bool = typer.Option(False, "--json", help="Print raw JSON"),
+):
+    """Show one stored run in detail."""
+    run = EvalStore().get_run(run_id)
+    if json_output:
+        console.print_json(json.dumps(run.model_dump()))
+        return
+
+    console.print(
+        f"[bold cyan]{run.run_id}[/bold cyan]  {run.suite_name} {run.suite_version}\n"
+        f"Status: {run.status}  Scenarios: {run.scenarios_executed}/{run.scenarios_requested}  "
+        f"Chaos: {run.chaos_mode or 'off'}"
+    )
+    table = Table(title="Scenario Results")
+    table.add_column("Scenario", style="cyan")
+    table.add_column("Fork", justify="right")
+    table.add_column("Status", style="green")
+    table.add_column("Score", justify="right", style="magenta")
+    for result in run.results[:20]:
+        table.add_row(result.name, str(result.fork_id), result.status, f"{result.score:.2f}")
     console.print(table)
 
 

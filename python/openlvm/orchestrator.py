@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -56,6 +57,8 @@ class TestOrchestrator:
         fork_ids = self.runtime.fork_many(root_agent_id, scenarios)
         results: list[ScenarioRunResult] = []
         warnings_total = 0
+        trace_records: list[dict] = []
+        promptfoo_outputs: list[str] = []
 
         for index, fork_id in enumerate(fork_ids):
             scenario_name, scenario = scenario_defs[index % len(scenario_defs)]
@@ -66,7 +69,8 @@ class TestOrchestrator:
             status = "passed" if score >= 0.75 else "warning"
             agent_output = self._build_agent_output(scenario.input, network_delay_ms, warnings)
             deepeval_metrics = self._run_deepeval_metrics(config, agent_output)
-            trace = self.openllmetry_adapter.instrument_fork(fork_id)
+            trace_records.append(self.openllmetry_adapter.instrument_fork(fork_id))
+            promptfoo_outputs.append(agent_output)
             results.append(
                 ScenarioRunResult(
                     name=scenario_name,
@@ -87,7 +91,7 @@ class TestOrchestrator:
 
         passed = sum(1 for result in results if result.status == "passed")
         warning_runs = sum(1 for result in results if result.status == "warning")
-        promptfoo_summary = self._run_promptfoo(config, results)
+        promptfoo_summary = self._run_promptfoo(config, promptfoo_outputs)
         run = EvalRun(
             run_id=run_id,
             suite_name=config.name,
@@ -114,6 +118,7 @@ class TestOrchestrator:
                 "promptfoo": promptfoo_summary,
                 "tracing_available": self.openllmetry_adapter.available,
                 "deepeval_available": self.deepeval_adapter.available,
+                "traces": trace_records,
             },
         )
         self.eval_store.store_run(run)
@@ -199,16 +204,24 @@ class TestOrchestrator:
         metrics = config.metrics.deepeval or []
         if not metrics:
             return {}
-        import asyncio
+        return self._run_coro(self.deepeval_adapter.evaluate(agent_output, metrics))
 
-        return asyncio.run(self.deepeval_adapter.evaluate(agent_output, metrics))
-
-    def _run_promptfoo(self, config: TestSuiteConfig, results: list[ScenarioRunResult]) -> dict:
+    def _run_promptfoo(self, config: TestSuiteConfig, outputs: list[str]) -> dict:
         if not config.metrics.promptfoo:
             return {"enabled": False}
-        import asyncio
-
-        outputs = [self._build_agent_output(result.input, result.network_delay_ms, result.warnings) for result in results]
-        summary = asyncio.run(self.promptfoo_adapter.run_eval("<generated>", outputs))
+        summary = self._run_coro(self.promptfoo_adapter.run_eval("<generated>", outputs))
         summary["enabled"] = True
         return summary
+
+    @staticmethod
+    def _run_coro(coro):
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(coro)
+
+        loop = asyncio.new_event_loop()
+        try:
+            return loop.run_until_complete(coro)
+        finally:
+            loop.close()
