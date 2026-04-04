@@ -1,0 +1,141 @@
+"""OpenLVM CLI powered by Typer and Rich."""
+
+from pathlib import Path
+
+import typer
+from rich.console import Console
+from rich.table import Table
+
+from .eval_store import EvalStore
+from .mcp_server import serve as serve_mcp
+from .orchestrator import TestOrchestrator
+from .runtime import OpenLVMError, OpenLVMRuntime
+
+app = typer.Typer(help="OpenLVM - Performance-first Agent-Native VM Runtime")
+console = Console()
+
+
+@app.command()
+def info():
+    """Print system information and Zig runtime status."""
+    console.print("[bold cyan]OpenLVM Runtime Info[/bold cyan]")
+    try:
+        runtime = OpenLVMRuntime()
+        console.print(f"Version: [green]{runtime.version()}[/green]")
+        console.print(f"Active Agents: [yellow]{runtime.get_active_agent_count()}[/yellow]")
+    except Exception as exc:
+        console.print(f"[bold red]Failed to load runtime:[/bold red] {exc}")
+
+
+@app.command()
+def test(
+    config_path: Path = typer.Argument(..., help="Path to swarm.yaml test config"),
+    scenarios: int = typer.Option(1, "--scenarios", "-n", help="Number of parallel universes to fork"),
+    chaos_mode: str = typer.Option(None, "--chaos", "-c", help="Specific chaos mode to apply, or 'all'"),
+):
+    """Run an OpenLVM test suite on an agent graph."""
+    try:
+        run = TestOrchestrator().run_test_suite(
+            config_path,
+            scenarios=scenarios,
+            chaos_mode=chaos_mode,
+        )
+
+        console.print(
+            f"[bold green]Run complete:[/bold green] {run.suite_name} {run.suite_version} ({run.run_id})"
+        )
+        console.print(
+            f"Agents: [cyan]{run.agent_count}[/cyan]  "
+            f"Scenarios: [cyan]{run.scenarios_executed}[/cyan]  "
+            f"Chaos: [yellow]{run.chaos_mode or 'off'}[/yellow]"
+        )
+
+        table = Table(title="Simulation Results")
+        table.add_column("Scenario", style="cyan")
+        table.add_column("Fork ID", justify="right", style="cyan", no_wrap=True)
+        table.add_column("Result", style="green")
+        table.add_column("Network Delay", justify="right", style="yellow")
+        table.add_column("Score", justify="right", style="magenta")
+
+        for result in run.results[:10]:
+            table.add_row(
+                result.name,
+                str(result.fork_id),
+                result.status,
+                f"{result.network_delay_ms}ms" if result.network_delay_ms > 0 else "0ms",
+                f"{result.score:.2f}",
+            )
+
+        console.print()
+        console.print(table)
+        if len(run.results) > 10:
+            console.print(f"... and [cyan]{len(run.results) - 10}[/cyan] more results hidden.")
+
+        console.print("\n[bold]Run summary:[/bold]")
+        console.print(
+            f"  Total passed: [green]{run.summary['passed']}[/green] \n"
+            f"  Warnings: [yellow]{run.summary['warnings']}[/yellow] \n"
+            f"  Failures: [red]{run.summary['failed']}[/red]"
+        )
+
+    except FileNotFoundError as exc:
+        console.print(f"[bold red]Configuration error:[/bold red] {exc}")
+        raise typer.Exit(code=1)
+    except OpenLVMError as exc:
+        console.print(f"[bold red]Zig Runtime error ({exc.code}):[/bold red] {exc}")
+        raise typer.Exit(code=1)
+
+
+@app.command()
+def results(limit: int = typer.Option(10, "--limit", "-n", help="Number of recent runs to display")):
+    """List recent stored runs from the local EvalStore."""
+    runs = EvalStore().list_runs(limit=limit)
+    if not runs:
+        console.print("[yellow]No eval runs stored yet.[/yellow]")
+        raise typer.Exit(code=0)
+
+    table = Table(title="Recent OpenLVM Runs")
+    table.add_column("Run ID", style="cyan", no_wrap=True)
+    table.add_column("Suite", style="green")
+    table.add_column("Scenarios", justify="right")
+    table.add_column("Passed", justify="right")
+    table.add_column("Warnings", justify="right")
+    table.add_column("Started", style="magenta")
+
+    for run in runs:
+        table.add_row(
+            run.run_id,
+            run.suite_name,
+            str(run.scenarios_executed),
+            str(run.summary.get("passed", 0)),
+            str(run.summary.get("warnings", 0)),
+            run.started_at,
+        )
+
+    console.print(table)
+
+
+@app.command("compare")
+def compare_runs(
+    run_a: str = typer.Argument(..., help="Baseline run id"),
+    run_b: str = typer.Argument(..., help="Candidate run id"),
+):
+    """Compare two stored runs."""
+    diff = EvalStore().compare_runs(run_a, run_b)
+    console.print(
+        f"[bold cyan]Comparison[/bold cyan] {diff.baseline_run_id} -> {diff.candidate_run_id}\n"
+        f"Passed delta: {diff.summary_delta.get('passed', 0)}  "
+        f"Warnings delta: {diff.summary_delta.get('warnings', 0)}  "
+        f"Failed delta: {diff.summary_delta.get('failed', 0)}  "
+        f"Score delta: {diff.score_delta:+.2f}"
+    )
+
+
+@app.command("mcp-serve")
+def mcp_serve():
+    """Start the OpenLVM MCP server."""
+    serve_mcp()
+
+
+if __name__ == "__main__":
+    app()

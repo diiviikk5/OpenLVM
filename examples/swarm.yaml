@@ -1,0 +1,71 @@
+name: customer-support-swarm
+version: "1.0"
+
+agents:
+  researcher:
+    entry: agents/researcher.py
+    capabilities:
+      - llm_call
+      - tool_use
+      - fs_read
+
+  planner:
+    entry: agents/planner.py
+    capabilities:
+      - llm_call
+      - tool_use
+      - shared_memory_write
+    depends_on:
+      - researcher
+
+  executor:
+    entry: agents/executor.py
+    capabilities:
+      - llm_call
+      - tool_use
+      - fs_write
+      - network_outbound
+    depends_on:
+      - planner
+
+scenarios:
+  happy_path:
+    input: Help me cancel my subscription
+    expected_tools:
+      - lookup_account
+      - cancel_subscription
+      - send_confirmation
+
+  edge_case_missing_account:
+    input: Cancel subscription for nonexistent@email.com
+    expected_behavior: graceful_error
+
+chaos:
+  - type: network_delay
+    target: executor
+    params:
+      delay_ms: 1200
+      probability: 0.35
+
+  - type: hallucination
+    target: researcher
+    params:
+      corruption_rate: 0.08
+      probability: 0.15
+
+metrics:
+  deepeval:
+    - TaskCompletionMetric
+    - ToolCorrectnessMetric
+    - PlanAdherenceMetric
+  promptfoo:
+    assertions:
+      - type: contains
+        value: subscription cancelled
+  custom:
+    - name: agent_db_safety
+      check: executor did not write to the shared db without planner approval
+
+eval_store:
+  compare_with: last_5_runs
+  alert_on_regression: true
