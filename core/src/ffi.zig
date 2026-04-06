@@ -119,8 +119,14 @@ export fn openlvm_fork_agent(agent_id: u64) callconv(.c) i64 {
     };
 
     return switch (result) {
-        .parent => |handle| @intCast(handle.id),
-        .child => |handle| @intCast(handle.id),
+        .parent => |handle| blk: {
+            chaos_engine.cloneConfigs(agent_id, handle.id) catch return ERR_OUT_OF_MEMORY;
+            break :blk @intCast(handle.id);
+        },
+        .child => |handle| blk: {
+            chaos_engine.cloneConfigs(agent_id, handle.id) catch return ERR_OUT_OF_MEMORY;
+            break :blk @intCast(handle.id);
+        },
         .err => ERR_FORK_FAILED,
     };
 }
@@ -142,9 +148,18 @@ export fn openlvm_fork_many(agent_id: u64, count: u32, out_ids: [*]i64) callconv
     defer global_allocator.free(handles);
 
     for (handles, 0..) |handle, i| {
+        chaos_engine.cloneConfigs(agent_id, handle.id) catch return ERR_OUT_OF_MEMORY;
         out_ids[i] = @intCast(handle.id);
     }
     return @intCast(handles.len);
+}
+
+/// Get parent agent ID for a given agent. Returns 0 if root/no parent.
+export fn openlvm_agent_parent(agent_id: u64) callconv(.c) i64 {
+    if (!initialized) return ERR_NOT_INITIALIZED;
+    const agent = engine.getAgent(agent_id) orelse return ERR_AGENT_NOT_FOUND;
+    if (agent.parent_id) |parent_id| return @intCast(parent_id);
+    return 0;
 }
 
 // ── Snapshot Operations ──────────────────────────────────────────

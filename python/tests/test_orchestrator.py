@@ -19,6 +19,11 @@ class FakeRuntime:
     def fork_many(self, agent_id: int, count: int) -> list[int]:
         return list(range(100, 100 + count))
 
+    def get_parent_agent_id(self, agent_id: int) -> int | None:
+        if agent_id >= 100:
+            return 1
+        return None
+
     def chaos_add_network_delay(self, agent_id: int, probability: float, delay_ms: int) -> None:
         self.network_delay = delay_ms
 
@@ -40,6 +45,7 @@ def test_orchestrator_runs_suite_and_stores_results(tmp_path):
     assert run.scenarios_executed == 3
     assert run.agent_count == 3
     assert run.summary["passed"] + run.summary["warnings"] == 3
+    assert run.results[0].fork_parent_id == 1
     assert store.get_run(run.run_id).run_id == run.run_id
 
 
@@ -61,6 +67,7 @@ def test_orchestrator_records_targeted_chaos_effects(tmp_path):
     run = orchestrator.run_test_suite(config_path, scenarios=1, chaos_mode="network_delay")
 
     result = run.results[0]
+    assert "__fork__" in result.chaos_effects
     assert "executor" in result.chaos_effects
     assert result.chaos_effects["executor"]["type"] == "network_delay"
     assert result.chaos_effects["executor"]["delay_ms"] >= 0

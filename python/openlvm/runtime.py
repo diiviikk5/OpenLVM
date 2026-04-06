@@ -46,6 +46,9 @@ class BaseRuntime:
     def fork_many(self, agent_id: int, count: int) -> List[int]:  # pragma: no cover - interface only
         raise NotImplementedError
 
+    def get_parent_agent_id(self, agent_id: int) -> int | None:  # pragma: no cover - interface only
+        raise NotImplementedError
+
     def snapshot_create(self, agent_id: int) -> int:  # pragma: no cover - interface only
         raise NotImplementedError
 
@@ -99,10 +102,18 @@ class SimulatedOpenLVMRuntime(BaseRuntime):
         child_id = self._next_id
         self._next_id += 1
         self._agents[child_id] = {"caps": self._agents[agent_id]["caps"], "parent": agent_id}
+        if agent_id in self._chaos:
+            self._chaos[child_id] = dict(self._chaos[agent_id])
         return child_id
 
     def fork_many(self, agent_id: int, count: int) -> List[int]:
         return [self.fork_agent(agent_id) for _ in range(count)]
+
+    def get_parent_agent_id(self, agent_id: int) -> int | None:
+        if agent_id not in self._agents:
+            raise OpenLVMError(-10, f"Unknown agent {agent_id}")
+        parent = self._agents[agent_id].get("parent")
+        return int(parent) if parent is not None else None
 
     def snapshot_create(self, agent_id: int) -> int:
         if agent_id not in self._agents:
@@ -206,6 +217,12 @@ class OpenLVMRuntime(BaseRuntime):
         lib.openlvm_fork_agent.restype = ctypes.c_int64
         lib.openlvm_fork_many.argtypes = [ctypes.c_uint64, ctypes.c_uint32, ctypes.POINTER(ctypes.c_int64)]
         lib.openlvm_fork_many.restype = ctypes.c_int32
+        try:
+            lib.openlvm_agent_parent.argtypes = [ctypes.c_uint64]
+            lib.openlvm_agent_parent.restype = ctypes.c_int64
+            lib._openlvm_has_parent_api = True
+        except AttributeError:
+            lib._openlvm_has_parent_api = False
         lib.openlvm_snapshot_create.argtypes = [ctypes.c_uint64]
         lib.openlvm_snapshot_create.restype = ctypes.c_int64
         lib.openlvm_replay_start.argtypes = [ctypes.c_uint64]
@@ -246,6 +263,16 @@ class OpenLVMRuntime(BaseRuntime):
         if res < 0:
             raise OpenLVMError(res, "Fork_many operation failed")
         return [int(value) for value in out_array[:res]]
+
+    def get_parent_agent_id(self, agent_id: int) -> int | None:
+        if not getattr(self._lib, "_openlvm_has_parent_api", False):
+            return None
+        res = self._lib.openlvm_agent_parent(ctypes.c_uint64(agent_id))
+        if res < 0:
+            raise OpenLVMError(res, f"Failed to inspect parent for agent {agent_id}")
+        if res == 0:
+            return None
+        return int(res)
 
     def snapshot_create(self, agent_id: int) -> int:
         res = self._lib.openlvm_snapshot_create(ctypes.c_uint64(agent_id))

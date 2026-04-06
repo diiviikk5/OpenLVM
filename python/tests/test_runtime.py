@@ -8,12 +8,14 @@ from openlvm.runtime import SimulatedOpenLVMRuntime, create_runtime
 def test_simulated_runtime_supports_basic_flow():
     runtime = SimulatedOpenLVMRuntime()
     parent = runtime.register_agent(0)
-    children = runtime.fork_many(parent, 3)
     runtime.chaos_add_network_delay(parent, 1.0, 250)
+    children = runtime.fork_many(parent, 3)
 
     assert len(children) == 3
     assert runtime.get_active_agent_count() == 4
     assert runtime.chaos_get_network_delay(parent) == 250
+    assert runtime.get_parent_agent_id(children[0]) == parent
+    assert runtime.chaos_get_network_delay(children[0]) == 250
     assert runtime.version().endswith("-sim")
 
 

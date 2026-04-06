@@ -61,6 +61,9 @@ class TestOrchestrator:
 
         scenario_defs = list(config.scenarios.items())
         fork_ids = self.runtime.fork_many(root_agent_id, scenarios)
+        fork_parents = {
+            fork_id: self._safe_parent_lookup(fork_id) for fork_id in fork_ids
+        }
         results: list[ScenarioRunResult] = []
         warnings_total = 0
         trace_records: list[dict] = []
@@ -68,11 +71,13 @@ class TestOrchestrator:
 
         for index, fork_id in enumerate(fork_ids):
             scenario_name, scenario = scenario_defs[index % len(scenario_defs)]
-            chaos_effects = self._collect_chaos_effects(active_chaos_targets)
-            network_delay_ms = max(
-                (effect.get("delay_ms", 0) for effect in chaos_effects.values()),
-                default=0,
+            chaos_effects = self._collect_chaos_effects(
+                active_chaos_targets,
+                fork_id=fork_id,
+                fork_parent_id=fork_parents.get(fork_id),
             )
+            fork_effect = chaos_effects.get("__fork__", {})
+            network_delay_ms = int(fork_effect.get("delay_ms", 0))
             warnings = self._collect_warnings(config, scenario_name, chaos_effects, chaos_mode)
             warnings_total += len(warnings)
             score = self._score_result(network_delay_ms, warnings)
@@ -88,6 +93,7 @@ class TestOrchestrator:
                 ScenarioRunResult(
                     name=scenario_name,
                     fork_id=fork_id,
+                    fork_parent_id=fork_parents.get(fork_id),
                     input=scenario.input,
                     status=status,
                     score=score,
@@ -245,8 +251,22 @@ class TestOrchestrator:
             }
         return targets
 
-    def _collect_chaos_effects(self, active_chaos_targets: dict[str, dict]) -> dict[str, dict]:
+    def _collect_chaos_effects(
+        self,
+        active_chaos_targets: dict[str, dict],
+        *,
+        fork_id: int,
+        fork_parent_id: int | None,
+    ) -> dict[str, dict]:
         effects: dict[str, dict] = {}
+        fork_delay_ms = self.runtime.chaos_get_network_delay(int(fork_id))
+        effects["__fork__"] = {
+            "agent_id": int(fork_id),
+            "parent_agent_id": int(fork_parent_id) if fork_parent_id is not None else None,
+            "type": "network_delay",
+            "delay_ms": fork_delay_ms,
+            "applied": fork_delay_ms > 0,
+        }
         for target_name, target in active_chaos_targets.items():
             effect: dict[str, object] = {
                 "agent_id": target["agent_id"],
@@ -273,7 +293,12 @@ class TestOrchestrator:
         chaos_mode: Optional[str],
     ) -> list[str]:
         warnings: list[str] = []
+        fork_effect = chaos_effects.get("__fork__", {})
+        if fork_effect.get("delay_ms", 0) > 0:
+            warnings.append(f"network delay injected on fork {fork_effect['agent_id']}: {fork_effect['delay_ms']}ms")
         for target_name, effect in chaos_effects.items():
+            if target_name == "__fork__":
+                continue
             if effect.get("type") == "network_delay" and effect.get("delay_ms", 0) > 0:
                 warnings.append(f"network delay injected on {target_name}: {effect['delay_ms']}ms")
             if effect.get("type") == "hallucination" and effect.get("applied"):
@@ -299,6 +324,12 @@ class TestOrchestrator:
         suffix = f" delay={network_delay_ms}ms" if network_delay_ms else ""
         warning_text = f" warnings={','.join(warnings)}" if warnings else ""
         return f"processed input={user_input!r}{suffix}{warning_text}"
+
+    def _safe_parent_lookup(self, agent_id: int) -> int | None:
+        try:
+            return self.runtime.get_parent_agent_id(agent_id)
+        except Exception:
+            return None
 
     def _run_deepeval_metrics(self, config: TestSuiteConfig, agent_output: str) -> dict[str, float]:
         metrics = config.metrics.deepeval or []

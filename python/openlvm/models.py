@@ -76,6 +76,7 @@ class TestSuiteConfig(BaseModel):
 class ScenarioRunResult(BaseModel):
     name: str
     fork_id: int
+    fork_parent_id: Optional[int] = None
     input: str
     status: str
     score: float

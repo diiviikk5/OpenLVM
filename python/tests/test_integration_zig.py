@@ -4,6 +4,7 @@ import pytest
 from typer.testing import CliRunner
 
 from openlvm.cli import app
+from openlvm.runtime import OpenLVMRuntime
 
 
 runner = CliRunner()
@@ -20,3 +21,18 @@ def test_cli_test_runs_with_zig_backend(monkeypatch):
     assert result.exit_code == 0
     assert "Run complete:" in result.stdout
     assert "Warnings:" in result.stdout
+
+
+@pytest.mark.skipif(not zig_dll.exists(), reason="Zig runtime library is not built")
+def test_zig_runtime_fork_inherits_parent_and_chaos():
+    runtime = OpenLVMRuntime()
+    try:
+        if not getattr(runtime._lib, "_openlvm_has_parent_api", False):  # pragma: no cover - compat with old local builds
+            pytest.skip("Built runtime is older than parent-introspection API")
+        parent_id = runtime.register_agent(0)
+        runtime.chaos_add_network_delay(parent_id, 1.0, 300)
+        child_id = runtime.fork_agent(parent_id)
+        assert runtime.get_parent_agent_id(child_id) == parent_id
+        assert runtime.chaos_get_network_delay(child_id) > 0
+    finally:
+        runtime.close()

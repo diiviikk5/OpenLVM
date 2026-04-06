@@ -99,6 +99,24 @@ pub const ChaosEngine = struct {
         }
     }
 
+    /// Clone all configs from a parent agent to a child agent.
+    pub fn cloneConfigs(self: *ChaosEngine, from_agent_id: u64, to_agent_id: u64) !void {
+        var clones = ManagedArrayList(ChaosConfig).init(self.allocator);
+        defer clones.deinit();
+
+        for (self.configs.items) |config| {
+            if (config.target_agent_id == from_agent_id) {
+                var cloned = config;
+                cloned.target_agent_id = to_agent_id;
+                try clones.append(cloned);
+            }
+        }
+
+        for (clones.items) |config| {
+            try self.configs.append(config);
+        }
+    }
+
     /// Check if chaos should be applied for a given agent and mode.
     /// Uses the PRNG to decide based on probability.
     pub fn shouldApply(self: *ChaosEngine, agent_id: u64, mode: ChaosMode) ?ChaosDecision {
