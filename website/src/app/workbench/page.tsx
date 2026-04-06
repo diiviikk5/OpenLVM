@@ -1,689 +1,262 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
-type Workspace = {
-  workspace_id: string;
-  name: string;
-  description: string;
-  created_at: string;
-};
-
-type Collection = {
+type Workspace = { workspace_id: string; name: string };
+type Collection = { collection_id: string; workspace_id: string; name: string };
+type Baseline = { baseline_id: string; run_id: string; label: string };
+type Scenario = {
+  scenario_id: string;
   collection_id: string;
-  workspace_id: string;
   name: string;
-  description: string;
-  created_at: string;
+  config_path: string;
+  input_text: string;
 };
-
-type Baseline = {
-  baseline_id: string;
-  collection_id: string;
+type Run = {
   run_id: string;
-  label: string;
-  created_at: string;
+  suite_name: string;
+  started_at: string;
+  scenarios_executed: number;
+  summary: Record<string, number>;
 };
-
 type ScenarioDiff = {
   name: string;
   baseline_status: string;
   candidate_status: string;
   baseline_score: number;
   candidate_score: number;
-  score_delta: number;
-  baseline_delay_ms: number;
-  candidate_delay_ms: number;
   warning_delta: number;
 };
-
-type RunDiff = {
+type Diff = {
+  baseline_id?: string;
+  baseline_label?: string;
   baseline_run_id: string;
   candidate_run_id: string;
-  summary_delta: Record<string, number>;
   score_delta: number;
-  baseline_average_score: number;
-  candidate_average_score: number;
   scenario_diffs: ScenarioDiff[];
-  trace_delta: Record<string, string | number | boolean | string[]>;
 };
-
-type EvalRun = {
-  run_id: string;
-  suite_name: string;
-  suite_version: string;
-  started_at: string;
-  scenarios_executed: number;
-  summary: Record<string, number>;
-  metadata: Record<string, unknown>;
-};
-
-type OverviewResponse = {
+type CompareResponse = { candidate_run_id: string; diffs: Diff[] };
+type Overview = {
   workspaces: Workspace[];
   collections: Collection[];
   baselines_by_collection: Record<string, Baseline[]>;
-  recent_runs: EvalRun[];
+  scenarios_by_collection: Record<string, Scenario[]>;
+  recent_runs: Run[];
 };
 
-async function loadOverview(): Promise<OverviewResponse> {
+async function fetchOverview(): Promise<Overview> {
   const res = await fetch("/api/workbench/overview", { cache: "no-store" });
-  const data = (await res.json()) as OverviewResponse | { error: string };
-  if (!res.ok || "error" in data) {
-    throw new Error("error" in data ? data.error : "Failed to load workbench overview");
-  }
+  const data = await res.json();
+  if (!res.ok || data.error) throw new Error(data.error || "overview failed");
   return data;
 }
 
-function formatTimestamp(value: string): string {
-  try {
-    return new Date(value).toLocaleString();
-  } catch {
-    return value;
-  }
+async function postJson<T>(url: string, body: Record<string, unknown>, method = "POST"): Promise<T> {
+  const res = await fetch(url, {
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json();
+  if (!res.ok || data.error) throw new Error(data.error || "request failed");
+  return data as T;
 }
 
 export default function WorkbenchPage() {
-  const [overview, setOverview] = useState<OverviewResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isMutating, setIsMutating] = useState(false);
+  const [overview, setOverview] = useState<Overview | null>(null);
+  const [error, setError] = useState("");
+  const [msg, setMsg] = useState("");
 
-  const [selectedCollectionId, setSelectedCollectionId] = useState<string>("");
-  const [selectedRunId, setSelectedRunId] = useState<string>("");
+  const [selectedCollection, setSelectedCollection] = useState("");
+  const [selectedRun, setSelectedRun] = useState("");
+  const [selectedBaselines, setSelectedBaselines] = useState<string[]>([]);
   const [isRunning, setIsRunning] = useState(false);
   const [isComparing, setIsComparing] = useState(false);
-  const [lastRunId, setLastRunId] = useState<string>("");
-  const [compareResult, setCompareResult] = useState<RunDiff | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
-  const [actionSuccess, setActionSuccess] = useState<string | null>(null);
+  const [lastRunId, setLastRunId] = useState("");
+  const [compare, setCompare] = useState<CompareResponse | null>(null);
 
   const [workspaceName, setWorkspaceName] = useState("");
-  const [workspaceDescription, setWorkspaceDescription] = useState("");
-  const [collectionWorkspaceId, setCollectionWorkspaceId] = useState("");
+  const [collectionWorkspace, setCollectionWorkspace] = useState("");
   const [collectionName, setCollectionName] = useState("");
-  const [collectionDescription, setCollectionDescription] = useState("");
-  const [scenarioCollectionId, setScenarioCollectionId] = useState("");
+
+  const [scenarioEditId, setScenarioEditId] = useState("");
+  const [scenarioCollection, setScenarioCollection] = useState("");
   const [scenarioName, setScenarioName] = useState("");
-  const [scenarioConfigPath, setScenarioConfigPath] = useState("examples/swarm.yaml");
-  const [scenarioInputText, setScenarioInputText] = useState("");
-  const [baselineCollectionId, setBaselineCollectionId] = useState("");
-  const [baselineRunId, setBaselineRunId] = useState("");
+  const [scenarioConfig, setScenarioConfig] = useState("examples/swarm.yaml");
+  const [scenarioInput, setScenarioInput] = useState("");
+
+  const [baselineRun, setBaselineRun] = useState("");
   const [baselineLabel, setBaselineLabel] = useState("stable");
+
+  const load = async () => {
+    const data = await fetchOverview();
+    setOverview(data);
+    if (data.workspaces[0] && !collectionWorkspace) setCollectionWorkspace(data.workspaces[0].workspace_id);
+    if (data.collections[0] && !selectedCollection) {
+      const col = data.collections[0].collection_id;
+      setSelectedCollection(col);
+      setScenarioCollection(col);
+      const bases = data.baselines_by_collection[col] || [];
+      if (bases[0]) setSelectedBaselines([bases[0].baseline_id]);
+    }
+    if (data.recent_runs[0] && !selectedRun) {
+      setSelectedRun(data.recent_runs[0].run_id);
+      setBaselineRun(data.recent_runs[0].run_id);
+    }
+  };
 
   useEffect(() => {
     void (async () => {
       try {
-        const data = await loadOverview();
+        const data = await fetchOverview();
         setOverview(data);
-
-        if (data.workspaces.length > 0) {
-          setCollectionWorkspaceId(data.workspaces[0].workspace_id);
+        if (data.workspaces[0]) setCollectionWorkspace(data.workspaces[0].workspace_id);
+        if (data.collections[0]) {
+          const col = data.collections[0].collection_id;
+          setSelectedCollection(col);
+          setScenarioCollection(col);
+          const bases = data.baselines_by_collection[col] || [];
+          if (bases[0]) setSelectedBaselines([bases[0].baseline_id]);
         }
-        if (data.collections.length > 0) {
-          const firstCollection = data.collections[0].collection_id;
-          setSelectedCollectionId(firstCollection);
-          setScenarioCollectionId(firstCollection);
-          setBaselineCollectionId(firstCollection);
+        if (data.recent_runs[0]) {
+          setSelectedRun(data.recent_runs[0].run_id);
+          setBaselineRun(data.recent_runs[0].run_id);
         }
-        if (data.recent_runs.length > 0) {
-          const latestRun = data.recent_runs[0].run_id;
-          setSelectedRunId(latestRun);
-          setBaselineRunId(latestRun);
-        }
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to load overview");
-      } finally {
-        setIsLoading(false);
+      } catch (e) {
+        setError(String(e));
       }
     })();
   }, []);
 
-  const workspaceNameById = useMemo(() => {
+  const baselines = useMemo(
+    () => (overview && selectedCollection ? overview.baselines_by_collection[selectedCollection] || [] : []),
+    [overview, selectedCollection]
+  );
+  const scenarios = useMemo(
+    () => (overview && selectedCollection ? overview.scenarios_by_collection[selectedCollection] || [] : []),
+    [overview, selectedCollection]
+  );
+
+  const workspaceNames = useMemo(() => {
     const map: Record<string, string> = {};
-    for (const workspace of overview?.workspaces ?? []) {
-      map[workspace.workspace_id] = workspace.name;
-    }
+    for (const ws of overview?.workspaces || []) map[ws.workspace_id] = ws.name;
     return map;
   }, [overview]);
 
-  const selectedCollectionBaselines = useMemo(() => {
-    if (!overview || !selectedCollectionId) {
-      return [];
-    }
-    return overview.baselines_by_collection[selectedCollectionId] ?? [];
-  }, [overview, selectedCollectionId]);
+  const toggleBaseline = (id: string) =>
+    setSelectedBaselines((arr) => (arr.includes(id) ? arr.filter((x) => x !== id) : [...arr, id]));
 
-  const refreshOverview = async () => {
-    const data = await loadOverview();
-    setOverview(data);
-
-    if (data.workspaces.length > 0 && !collectionWorkspaceId) {
-      setCollectionWorkspaceId(data.workspaces[0].workspace_id);
-    }
-    if (data.collections.length > 0 && !selectedCollectionId) {
-      const collectionId = data.collections[0].collection_id;
-      setSelectedCollectionId(collectionId);
-      setScenarioCollectionId(collectionId);
-      setBaselineCollectionId(collectionId);
-    }
-    if (data.recent_runs.length > 0 && !selectedRunId) {
-      const runId = data.recent_runs[0].run_id;
-      setSelectedRunId(runId);
-      setBaselineRunId(runId);
-    }
+  const setEditing = (s: Scenario) => {
+    setScenarioEditId(s.scenario_id);
+    setScenarioCollection(s.collection_id);
+    setScenarioName(s.name);
+    setScenarioConfig(s.config_path);
+    setScenarioInput(s.input_text);
   };
-
-  const postJson = async <T,>(url: string, payload: Record<string, unknown>): Promise<T> => {
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    const data = (await res.json()) as T | { error: string };
-    if (!res.ok || (typeof data === "object" && data !== null && "error" in data)) {
-      throw new Error((data as { error: string }).error || "Request failed");
-    }
-    return data as T;
-  };
-
-  const runCollection = async () => {
-    if (!selectedCollectionId) return;
-    setIsRunning(true);
-    setActionError(null);
-    setActionSuccess(null);
-    try {
-      const data = await postJson<EvalRun>("/api/workbench/run", {
-        collection_id: selectedCollectionId,
-      });
-      setLastRunId(data.run_id);
-      setSelectedRunId(data.run_id);
-      setBaselineRunId(data.run_id);
-      await refreshOverview();
-      setActionSuccess(`Collection run complete: ${data.run_id}`);
-    } catch (err) {
-      setActionError(err instanceof Error ? err.message : "Collection run failed");
-    } finally {
-      setIsRunning(false);
-    }
-  };
-
-  const compareBaseline = async () => {
-    if (!selectedCollectionId || !selectedRunId) return;
-    setIsComparing(true);
-    setActionError(null);
-    setActionSuccess(null);
-    try {
-      const data = await postJson<RunDiff>("/api/workbench/compare", {
-        collection_id: selectedCollectionId,
-        run_id: selectedRunId,
-      });
-      setCompareResult(data);
-      setActionSuccess("Baseline comparison complete.");
-    } catch (err) {
-      setActionError(err instanceof Error ? err.message : "Baseline compare failed");
-    } finally {
-      setIsComparing(false);
-    }
-  };
-
-  const createWorkspace = async () => {
-    if (!workspaceName.trim()) return;
-    setIsMutating(true);
-    setActionError(null);
-    setActionSuccess(null);
-    try {
-      const created = await postJson<Workspace>("/api/workbench/workspace", {
-        name: workspaceName.trim(),
-        description: workspaceDescription.trim(),
-      });
-      setWorkspaceName("");
-      setWorkspaceDescription("");
-      setCollectionWorkspaceId(created.workspace_id);
-      await refreshOverview();
-      setActionSuccess(`Workspace created: ${created.name}`);
-    } catch (err) {
-      setActionError(err instanceof Error ? err.message : "Workspace creation failed");
-    } finally {
-      setIsMutating(false);
-    }
-  };
-
-  const createCollection = async () => {
-    if (!collectionWorkspaceId || !collectionName.trim()) return;
-    setIsMutating(true);
-    setActionError(null);
-    setActionSuccess(null);
-    try {
-      const created = await postJson<Collection>("/api/workbench/collection", {
-        workspace_id: collectionWorkspaceId,
-        name: collectionName.trim(),
-        description: collectionDescription.trim(),
-      });
-      setCollectionName("");
-      setCollectionDescription("");
-      setSelectedCollectionId(created.collection_id);
-      setScenarioCollectionId(created.collection_id);
-      setBaselineCollectionId(created.collection_id);
-      await refreshOverview();
-      setActionSuccess(`Collection created: ${created.name}`);
-    } catch (err) {
-      setActionError(err instanceof Error ? err.message : "Collection creation failed");
-    } finally {
-      setIsMutating(false);
-    }
-  };
-
-  const saveScenario = async () => {
-    if (!scenarioCollectionId || !scenarioName.trim() || !scenarioConfigPath.trim() || !scenarioInputText.trim()) return;
-    setIsMutating(true);
-    setActionError(null);
-    setActionSuccess(null);
-    try {
-      await postJson("/api/workbench/scenario", {
-        collection_id: scenarioCollectionId,
-        name: scenarioName.trim(),
-        config_path: scenarioConfigPath.trim(),
-        input_text: scenarioInputText.trim(),
-      });
-      setScenarioName("");
-      setScenarioInputText("");
-      await refreshOverview();
-      setActionSuccess("Scenario saved.");
-    } catch (err) {
-      setActionError(err instanceof Error ? err.message : "Scenario save failed");
-    } finally {
-      setIsMutating(false);
-    }
-  };
-
-  const saveBaseline = async () => {
-    if (!baselineCollectionId || !baselineRunId.trim() || !baselineLabel.trim()) return;
-    setIsMutating(true);
-    setActionError(null);
-    setActionSuccess(null);
-    try {
-      await postJson("/api/workbench/baseline", {
-        collection_id: baselineCollectionId,
-        run_id: baselineRunId.trim(),
-        label: baselineLabel.trim(),
-      });
-      await refreshOverview();
-      setActionSuccess(`Baseline saved: ${baselineLabel.trim()}`);
-    } catch (err) {
-      setActionError(err instanceof Error ? err.message : "Baseline save failed");
-    } finally {
-      setIsMutating(false);
-    }
-  };
-
-  if (isLoading) {
-    return (
-      <main className="min-h-screen bg-near-black p-10 text-ivory">
-        <p className="text-lg text-warm-silver">Loading OpenLVM workbench...</p>
-      </main>
-    );
-  }
-
-  if (error) {
-    return (
-      <main className="min-h-screen bg-near-black p-10 text-ivory">
-        <h1 className="text-3xl font-semibold">Workbench unavailable</h1>
-        <p className="mt-4 text-coral">{error}</p>
-      </main>
-    );
-  }
 
   return (
-    <main className="min-h-screen bg-[radial-gradient(circle_at_top,rgba(201,100,66,0.18),transparent_34%),linear-gradient(180deg,#141413_0%,#1b1a19_100%)] text-ivory">
-      <div className="mx-auto max-w-[1280px] px-6 py-10 lg:px-10 lg:py-14">
-        <div className="glass-dark-elevated mb-8 rounded-[28px] border border-border-dark p-6 lg:p-8">
-          <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-            <div className="max-w-3xl">
-              <p className="mb-3 text-sm uppercase tracking-[0.28em] text-warm-silver">OpenLVM Workbench</p>
-              <h1 className="font-[family-name:var(--font-serif)] text-4xl leading-tight text-ivory lg:text-6xl">
-                Live collection runs, baselines, and trace-aware diffs.
-              </h1>
-            </div>
-            <div className="flex flex-wrap gap-3">
-              <Link
-                href="https://github.com/diiviikk5/OpenLVM"
-                target="_blank"
-                className="rounded-2xl border border-border-dark px-4 py-3 text-sm font-medium text-warm-silver transition hover:border-olive-gray hover:text-ivory"
-              >
-                View Repository
-              </Link>
-              <button
-                type="button"
-                onClick={() => void refreshOverview()}
-                className="rounded-2xl bg-terracotta px-4 py-3 text-sm font-medium text-ivory transition hover:bg-coral"
-              >
-                Refresh
-              </button>
-            </div>
-          </div>
+    <main className="min-h-screen bg-near-black text-ivory p-6">
+      <h1 className="text-3xl mb-3">OpenLVM Workbench</h1>
+      {error && <p className="text-coral mb-3">{error}</p>}
+      {msg && <p className="text-accent-emerald mb-3">{msg}</p>}
 
-          <div className="grid gap-4 lg:grid-cols-3">
-            <div className="rounded-2xl border border-border-dark bg-near-black/60 p-4">
-              <p className="text-sm text-stone-gray">Workspaces</p>
-              <p className="mt-2 text-3xl font-semibold text-ivory">{overview?.workspaces.length ?? 0}</p>
-            </div>
-            <div className="rounded-2xl border border-border-dark bg-near-black/60 p-4">
-              <p className="text-sm text-stone-gray">Collections</p>
-              <p className="mt-2 text-3xl font-semibold text-ivory">{overview?.collections.length ?? 0}</p>
-            </div>
-            <div className="rounded-2xl border border-border-dark bg-near-black/60 p-4">
-              <p className="text-sm text-stone-gray">Recent Runs</p>
-              <p className="mt-2 text-3xl font-semibold text-ivory">{overview?.recent_runs.length ?? 0}</p>
-            </div>
-          </div>
-        </div>
-
-        <section className="glass-dark mb-6 rounded-[28px] border border-border-dark p-6">
-          <h2 className="text-2xl font-semibold">Setup</h2>
-          <p className="mt-2 text-sm text-warm-silver">
-            Create workspaces, collections, scenarios, and baselines without leaving the workbench.
-          </p>
-          <div className="mt-5 grid gap-5 lg:grid-cols-2">
-            <div className="rounded-2xl border border-border-dark bg-near-black/45 p-4">
-              <h3 className="text-lg font-semibold">Create Workspace</h3>
-              <input
-                className="mt-3 w-full rounded-xl border border-border-dark bg-near-black px-3 py-2 text-ivory"
-                placeholder="Workspace name"
-                value={workspaceName}
-                onChange={(event) => setWorkspaceName(event.target.value)}
-              />
-              <input
-                className="mt-2 w-full rounded-xl border border-border-dark bg-near-black px-3 py-2 text-ivory"
-                placeholder="Description (optional)"
-                value={workspaceDescription}
-                onChange={(event) => setWorkspaceDescription(event.target.value)}
-              />
-              <button
-                type="button"
-                onClick={() => void createWorkspace()}
-                disabled={isMutating}
-                className="mt-3 rounded-xl bg-terracotta px-4 py-2 text-sm font-semibold text-ivory transition hover:bg-coral disabled:opacity-50"
-              >
-                Create Workspace
-              </button>
-            </div>
-
-            <div className="rounded-2xl border border-border-dark bg-near-black/45 p-4">
-              <h3 className="text-lg font-semibold">Create Collection</h3>
-              <select
-                className="mt-3 w-full rounded-xl border border-border-dark bg-near-black px-3 py-2 text-ivory"
-                value={collectionWorkspaceId}
-                onChange={(event) => setCollectionWorkspaceId(event.target.value)}
-              >
-                {(overview?.workspaces ?? []).map((workspace) => (
-                  <option key={workspace.workspace_id} value={workspace.workspace_id}>
-                    {workspace.name}
-                  </option>
-                ))}
-              </select>
-              <input
-                className="mt-2 w-full rounded-xl border border-border-dark bg-near-black px-3 py-2 text-ivory"
-                placeholder="Collection name"
-                value={collectionName}
-                onChange={(event) => setCollectionName(event.target.value)}
-              />
-              <input
-                className="mt-2 w-full rounded-xl border border-border-dark bg-near-black px-3 py-2 text-ivory"
-                placeholder="Description (optional)"
-                value={collectionDescription}
-                onChange={(event) => setCollectionDescription(event.target.value)}
-              />
-              <button
-                type="button"
-                onClick={() => void createCollection()}
-                disabled={isMutating || (overview?.workspaces.length ?? 0) === 0}
-                className="mt-3 rounded-xl bg-terracotta px-4 py-2 text-sm font-semibold text-ivory transition hover:bg-coral disabled:opacity-50"
-              >
-                Create Collection
-              </button>
-            </div>
-
-            <div className="rounded-2xl border border-border-dark bg-near-black/45 p-4">
-              <h3 className="text-lg font-semibold">Save Scenario</h3>
-              <select
-                className="mt-3 w-full rounded-xl border border-border-dark bg-near-black px-3 py-2 text-ivory"
-                value={scenarioCollectionId}
-                onChange={(event) => setScenarioCollectionId(event.target.value)}
-              >
-                {(overview?.collections ?? []).map((collection) => (
-                  <option key={collection.collection_id} value={collection.collection_id}>
-                    {collection.name}
-                  </option>
-                ))}
-              </select>
-              <input
-                className="mt-2 w-full rounded-xl border border-border-dark bg-near-black px-3 py-2 text-ivory"
-                placeholder="Scenario name"
-                value={scenarioName}
-                onChange={(event) => setScenarioName(event.target.value)}
-              />
-              <input
-                className="mt-2 w-full rounded-xl border border-border-dark bg-near-black px-3 py-2 text-ivory"
-                placeholder="Config path (e.g. examples/swarm.yaml)"
-                value={scenarioConfigPath}
-                onChange={(event) => setScenarioConfigPath(event.target.value)}
-              />
-              <textarea
-                className="mt-2 h-24 w-full rounded-xl border border-border-dark bg-near-black px-3 py-2 text-ivory"
-                placeholder="Scenario input"
-                value={scenarioInputText}
-                onChange={(event) => setScenarioInputText(event.target.value)}
-              />
-              <button
-                type="button"
-                onClick={() => void saveScenario()}
-                disabled={isMutating || (overview?.collections.length ?? 0) === 0}
-                className="mt-3 rounded-xl bg-terracotta px-4 py-2 text-sm font-semibold text-ivory transition hover:bg-coral disabled:opacity-50"
-              >
-                Save Scenario
-              </button>
-            </div>
-
-            <div className="rounded-2xl border border-border-dark bg-near-black/45 p-4">
-              <h3 className="text-lg font-semibold">Save Baseline</h3>
-              <select
-                className="mt-3 w-full rounded-xl border border-border-dark bg-near-black px-3 py-2 text-ivory"
-                value={baselineCollectionId}
-                onChange={(event) => setBaselineCollectionId(event.target.value)}
-              >
-                {(overview?.collections ?? []).map((collection) => (
-                  <option key={collection.collection_id} value={collection.collection_id}>
-                    {collection.name}
-                  </option>
-                ))}
-              </select>
-              <input
-                className="mt-2 w-full rounded-xl border border-border-dark bg-near-black px-3 py-2 text-ivory"
-                placeholder="Run ID"
-                value={baselineRunId}
-                onChange={(event) => setBaselineRunId(event.target.value)}
-              />
-              <input
-                className="mt-2 w-full rounded-xl border border-border-dark bg-near-black px-3 py-2 text-ivory"
-                placeholder="Label"
-                value={baselineLabel}
-                onChange={(event) => setBaselineLabel(event.target.value)}
-              />
-              <button
-                type="button"
-                onClick={() => void saveBaseline()}
-                disabled={isMutating || (overview?.collections.length ?? 0) === 0}
-                className="mt-3 rounded-xl bg-terracotta px-4 py-2 text-sm font-semibold text-ivory transition hover:bg-coral disabled:opacity-50"
-              >
-                Save Baseline
-              </button>
-            </div>
-          </div>
-          {actionSuccess && <p className="mt-3 text-sm text-accent-emerald">{actionSuccess}</p>}
-          {actionError && <p className="mt-2 text-sm text-coral">{actionError}</p>}
-        </section>
-
-        <div className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
-          <section className="glass-dark rounded-[28px] border border-border-dark p-6">
-            <h2 className="text-2xl font-semibold">Collections</h2>
-            <p className="mt-2 text-sm text-warm-silver">Select a collection and execute from the workbench.</p>
-            <div className="mt-4 space-y-3">
-              {(overview?.collections ?? []).map((collection) => (
-                <button
-                  key={collection.collection_id}
-                  type="button"
-                  onClick={() => setSelectedCollectionId(collection.collection_id)}
-                  className={`w-full rounded-2xl border p-4 text-left transition ${
-                    selectedCollectionId === collection.collection_id
-                      ? "border-terracotta bg-terracotta/10"
-                      : "border-border-dark bg-near-black/50 hover:border-olive-gray"
-                  }`}
-                >
-                  <p className="text-lg font-semibold text-ivory">{collection.name}</p>
-                  <p className="text-sm text-warm-silver">
-                    {workspaceNameById[collection.workspace_id] ?? collection.workspace_id}
-                  </p>
-                </button>
-              ))}
-            </div>
-          </section>
-
-          <section className="glass-dark rounded-[28px] border border-border-dark p-6">
-            <h2 className="text-2xl font-semibold">Run + Compare</h2>
-            <div className="mt-4 grid gap-4 md:grid-cols-2">
-              <div>
-                <label className="mb-2 block text-sm text-stone-gray">Collection</label>
-                <select
-                  className="w-full rounded-xl border border-border-dark bg-near-black px-3 py-2 text-ivory"
-                  value={selectedCollectionId}
-                  onChange={(event) => setSelectedCollectionId(event.target.value)}
-                >
-                  {(overview?.collections ?? []).map((collection) => (
-                    <option key={collection.collection_id} value={collection.collection_id}>
-                      {collection.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="mb-2 block text-sm text-stone-gray">Run ID for compare</label>
-                <select
-                  className="w-full rounded-xl border border-border-dark bg-near-black px-3 py-2 text-ivory"
-                  value={selectedRunId}
-                  onChange={(event) => setSelectedRunId(event.target.value)}
-                >
-                  {(overview?.recent_runs ?? []).map((run) => (
-                    <option key={run.run_id} value={run.run_id}>
-                      {run.run_id}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            <div className="mt-4 flex flex-wrap gap-3">
-              <button
-                type="button"
-                onClick={() => void runCollection()}
-                disabled={isRunning || !selectedCollectionId}
-                className="rounded-xl bg-terracotta px-4 py-2 text-sm font-semibold text-ivory transition hover:bg-coral disabled:opacity-50"
-              >
-                {isRunning ? "Running..." : "Run Collection"}
-              </button>
-              <button
-                type="button"
-                onClick={() => void compareBaseline()}
-                disabled={isComparing || !selectedCollectionId || !selectedRunId}
-                className="rounded-xl border border-border-dark bg-near-black px-4 py-2 text-sm font-semibold text-ivory transition hover:border-olive-gray disabled:opacity-50"
-              >
-                {isComparing ? "Comparing..." : "Compare To Baseline"}
-              </button>
-            </div>
-
-            {selectedCollectionBaselines.length > 0 && (
-              <p className="mt-3 text-sm text-warm-silver">
-                Baseline: {selectedCollectionBaselines[0].label} ({selectedCollectionBaselines[0].run_id})
-              </p>
-            )}
-            {lastRunId && <p className="mt-2 text-sm text-accent-emerald">Latest run created: {lastRunId}</p>}
-          </section>
-        </div>
-
-        <section className="glass-dark mt-6 rounded-[28px] border border-border-dark p-6">
-          <h2 className="text-2xl font-semibold">Recent Runs</h2>
-          <div className="mt-4 overflow-hidden rounded-2xl border border-border-dark">
-            <table className="w-full border-collapse text-left text-sm">
-              <thead className="bg-dark-surface/70 text-stone-gray">
-                <tr>
-                  <th className="px-4 py-3 font-medium">Run ID</th>
-                  <th className="px-4 py-3 font-medium">Suite</th>
-                  <th className="px-4 py-3 font-medium">Scenarios</th>
-                  <th className="px-4 py-3 font-medium">Passed</th>
-                  <th className="px-4 py-3 font-medium">Warnings</th>
-                  <th className="px-4 py-3 font-medium">Started</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(overview?.recent_runs ?? []).map((run) => (
-                  <tr key={run.run_id} className="border-t border-border-dark bg-near-black/50 text-warm-silver">
-                    <td className="px-4 py-3 font-[family-name:var(--font-jetbrains)] text-ivory">{run.run_id}</td>
-                    <td className="px-4 py-3">{run.suite_name}</td>
-                    <td className="px-4 py-3">{run.scenarios_executed}</td>
-                    <td className="px-4 py-3">{run.summary.passed ?? 0}</td>
-                    <td className="px-4 py-3">{run.summary.warnings ?? 0}</td>
-                    <td className="px-4 py-3">{formatTimestamp(run.started_at)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+      <div className="grid gap-4 md:grid-cols-2">
+        <section className="border border-border-dark rounded-xl p-4">
+          <h2 className="text-xl mb-2">Setup</h2>
+          <div className="space-y-2">
+            <input className="w-full bg-dark-surface p-2 rounded" placeholder="Workspace name" value={workspaceName} onChange={(e) => setWorkspaceName(e.target.value)} />
+            <button className="bg-terracotta px-3 py-1 rounded" onClick={async () => { try { await postJson("/api/workbench/workspace", { name: workspaceName }); setWorkspaceName(""); await load(); setMsg("Workspace created"); } catch (e) { setError(String(e)); } }}>Create Workspace</button>
+            <select className="w-full bg-dark-surface p-2 rounded" value={collectionWorkspace} onChange={(e) => setCollectionWorkspace(e.target.value)}>
+              {(overview?.workspaces || []).map((w) => <option key={w.workspace_id} value={w.workspace_id}>{w.name}</option>)}
+            </select>
+            <input className="w-full bg-dark-surface p-2 rounded" placeholder="Collection name" value={collectionName} onChange={(e) => setCollectionName(e.target.value)} />
+            <button className="bg-terracotta px-3 py-1 rounded" onClick={async () => { try { const c = await postJson<Collection>("/api/workbench/collection", { workspace_id: collectionWorkspace, name: collectionName }); setCollectionName(""); setSelectedCollection(c.collection_id); setScenarioCollection(c.collection_id); await load(); setMsg("Collection created"); } catch (e) { setError(String(e)); } }}>Create Collection</button>
           </div>
         </section>
 
-        {compareResult && (
-          <section className="glass-dark mt-6 rounded-[28px] border border-border-dark p-6">
-            <h2 className="text-2xl font-semibold">Baseline Diff</h2>
-            <p className="mt-2 text-sm text-warm-silver">
-              {compareResult.baseline_run_id} {"->"} {compareResult.candidate_run_id} | score delta{" "}
-              {compareResult.score_delta >= 0 ? "+" : ""}
-              {compareResult.score_delta.toFixed(2)}
-            </p>
-            <div className="mt-4 overflow-hidden rounded-2xl border border-border-dark">
-              <table className="w-full border-collapse text-left text-sm">
-                <thead className="bg-dark-surface/70 text-stone-gray">
-                  <tr>
-                    <th className="px-4 py-3 font-medium">Scenario</th>
-                    <th className="px-4 py-3 font-medium">Status</th>
-                    <th className="px-4 py-3 font-medium">Score</th>
-                    <th className="px-4 py-3 font-medium">Delay</th>
-                    <th className="px-4 py-3 font-medium">Warn Delta</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {compareResult.scenario_diffs.map((diff) => (
-                    <tr key={diff.name} className="border-t border-border-dark bg-near-black/50 text-warm-silver">
-                      <td className="px-4 py-3 text-ivory">{diff.name}</td>
-                      <td className="px-4 py-3">
-                        {diff.baseline_status} {"->"} {diff.candidate_status}
-                      </td>
-                      <td className="px-4 py-3">
-                        {diff.baseline_score.toFixed(2)} {"->"} {diff.candidate_score.toFixed(2)}
-                      </td>
-                      <td className="px-4 py-3">
-                        {diff.baseline_delay_ms}ms {"->"} {diff.candidate_delay_ms}ms
-                      </td>
-                      <td className="px-4 py-3">
-                        {diff.warning_delta >= 0 ? "+" : ""}
-                        {diff.warning_delta}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+        <section className="border border-border-dark rounded-xl p-4">
+          <h2 className="text-xl mb-2">{scenarioEditId ? "Edit Scenario" : "Save Scenario"}</h2>
+          <div className="space-y-2">
+            <select className="w-full bg-dark-surface p-2 rounded" value={scenarioCollection} onChange={(e) => setScenarioCollection(e.target.value)}>
+              {(overview?.collections || []).map((c) => <option key={c.collection_id} value={c.collection_id}>{c.name}</option>)}
+            </select>
+            <input className="w-full bg-dark-surface p-2 rounded" placeholder="Scenario name" value={scenarioName} onChange={(e) => setScenarioName(e.target.value)} />
+            <input className="w-full bg-dark-surface p-2 rounded" placeholder="Config path" value={scenarioConfig} onChange={(e) => setScenarioConfig(e.target.value)} />
+            <textarea className="w-full bg-dark-surface p-2 rounded" placeholder="Input" value={scenarioInput} onChange={(e) => setScenarioInput(e.target.value)} />
+            <div className="flex gap-2">
+              <button className="bg-terracotta px-3 py-1 rounded" onClick={async () => { try { if (scenarioEditId) { await postJson("/api/workbench/scenario", { scenario_id: scenarioEditId, name: scenarioName, config_path: scenarioConfig, input_text: scenarioInput }, "PATCH"); } else { await postJson("/api/workbench/scenario", { collection_id: scenarioCollection, name: scenarioName, config_path: scenarioConfig, input_text: scenarioInput }); } setScenarioEditId(""); setScenarioName(""); setScenarioInput(""); setScenarioConfig("examples/swarm.yaml"); await load(); setMsg("Scenario saved"); } catch (e) { setError(String(e)); } }}>{scenarioEditId ? "Update" : "Save"}</button>
+              {scenarioEditId && <button className="border border-border-dark px-3 py-1 rounded" onClick={() => { setScenarioEditId(""); setScenarioName(""); setScenarioInput(""); setScenarioConfig("examples/swarm.yaml"); }}>Cancel</button>}
             </div>
-          </section>
-        )}
+          </div>
+        </section>
       </div>
+
+      <section className="border border-border-dark rounded-xl p-4 mt-4">
+        <h2 className="text-xl mb-2">Scenarios for Selected Collection</h2>
+        <select className="w-full bg-dark-surface p-2 rounded mb-2" value={selectedCollection} onChange={(e) => setSelectedCollection(e.target.value)}>
+          {(overview?.collections || []).map((c) => <option key={c.collection_id} value={c.collection_id}>{c.name} ({workspaceNames[c.workspace_id] || c.workspace_id})</option>)}
+        </select>
+        <div className="space-y-2">
+          {scenarios.map((s) => (
+            <div key={s.scenario_id} className="flex items-center justify-between border border-border-dark rounded p-2">
+              <div>{s.name}</div>
+              <div className="flex gap-2">
+                <button className="border border-border-dark px-2 py-1 rounded" onClick={() => setEditing(s)}>Edit</button>
+                <button className="border border-coral px-2 py-1 rounded text-coral" onClick={async () => { try { await postJson("/api/workbench/scenario", { scenario_id: s.scenario_id }, "DELETE"); await load(); setMsg("Scenario deleted"); } catch (e) { setError(String(e)); } }}>Delete</button>
+              </div>
+            </div>
+          ))}
+          {scenarios.length === 0 && <p className="text-warm-silver">No scenarios yet.</p>}
+        </div>
+      </section>
+
+      <section className="border border-border-dark rounded-xl p-4 mt-4">
+        <h2 className="text-xl mb-2">Run and Compare</h2>
+        <div className="grid gap-2 md:grid-cols-3">
+          <select className="bg-dark-surface p-2 rounded" value={selectedCollection} onChange={(e) => setSelectedCollection(e.target.value)}>
+            {(overview?.collections || []).map((c) => <option key={c.collection_id} value={c.collection_id}>{c.name}</option>)}
+          </select>
+          <select className="bg-dark-surface p-2 rounded" value={selectedRun} onChange={(e) => setSelectedRun(e.target.value)}>
+            {(overview?.recent_runs || []).map((r) => <option key={r.run_id} value={r.run_id}>{r.run_id}</option>)}
+          </select>
+          <button className="bg-terracotta px-3 py-1 rounded" disabled={isRunning} onClick={async () => { try { setIsRunning(true); const run = await postJson<Run>("/api/workbench/run", { collection_id: selectedCollection }); setLastRunId(run.run_id); setSelectedRun(run.run_id); setBaselineRun(run.run_id); await load(); setMsg(`Run complete: ${run.run_id}`); } catch (e) { setError(String(e)); } finally { setIsRunning(false); } }}>{isRunning ? "Running..." : "Run Collection"}</button>
+        </div>
+        <div className="mt-2 p-2 border border-border-dark rounded">
+          <p className="text-sm text-warm-silver mb-1">Choose baseline(s)</p>
+          {baselines.map((b) => (
+            <label key={b.baseline_id} className="block text-sm">
+              <input type="checkbox" checked={selectedBaselines.includes(b.baseline_id)} onChange={() => toggleBaseline(b.baseline_id)} /> {b.label} ({b.run_id})
+            </label>
+          ))}
+          {baselines.length === 0 && <p className="text-sm text-warm-silver">No baselines.</p>}
+        </div>
+        <div className="mt-2 flex gap-2">
+          <input className="bg-dark-surface p-2 rounded flex-1" placeholder="Baseline run id" value={baselineRun} onChange={(e) => setBaselineRun(e.target.value)} />
+          <input className="bg-dark-surface p-2 rounded w-40" placeholder="Label" value={baselineLabel} onChange={(e) => setBaselineLabel(e.target.value)} />
+          <button className="border border-border-dark px-3 py-1 rounded" onClick={async () => { try { await postJson("/api/workbench/baseline", { collection_id: selectedCollection, run_id: baselineRun, label: baselineLabel }); await load(); setMsg("Baseline saved"); } catch (e) { setError(String(e)); } }}>Save Baseline</button>
+          <button className="bg-terracotta px-3 py-1 rounded" disabled={isComparing} onClick={async () => { try { setIsComparing(true); const resp = await postJson<CompareResponse>("/api/workbench/compare", { collection_id: selectedCollection, run_id: selectedRun, baseline_ids: selectedBaselines }); setCompare(resp); setMsg(`Compared ${resp.diffs.length} baseline(s)`); } catch (e) { setError(String(e)); } finally { setIsComparing(false); } }}>{isComparing ? "Comparing..." : "Compare"}</button>
+        </div>
+        {lastRunId && <p className="mt-2 text-sm text-accent-emerald">Latest run: {lastRunId}</p>}
+      </section>
+
+      {compare && (
+        <section className="border border-border-dark rounded-xl p-4 mt-4">
+          <h2 className="text-xl mb-2">Multi-Baseline Compare</h2>
+          {compare.diffs.map((d) => (
+            <div key={d.baseline_id || d.baseline_run_id} className="mb-4 border border-border-dark rounded p-3">
+              <p className="text-sm text-warm-silver">{d.baseline_label || "baseline"} ({d.baseline_run_id}) {"->"} {d.candidate_run_id} | score {d.score_delta >= 0 ? "+" : ""}{d.score_delta.toFixed(2)}</p>
+              <div className="mt-2 space-y-1 text-sm">
+                {d.scenario_diffs.map((s) => (
+                  <div key={`${d.baseline_run_id}-${s.name}`} className="flex justify-between border-b border-border-dark/50 pb-1">
+                    <span>{s.name}</span>
+                    <span>{s.baseline_status} {"->"} {s.candidate_status} | {s.baseline_score.toFixed(2)} {"->"} {s.candidate_score.toFixed(2)} | warn {s.warning_delta >= 0 ? "+" : ""}{s.warning_delta}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </section>
+      )}
     </main>
   );
 }

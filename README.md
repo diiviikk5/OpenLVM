@@ -64,8 +64,15 @@ Available API routes:
 - `POST /api/workbench/compare`
 - `POST /api/workbench/workspace`
 - `POST /api/workbench/collection`
-- `POST /api/workbench/scenario`
+- `GET/POST/PATCH/DELETE /api/workbench/scenario`
 - `POST /api/workbench/baseline`
+
+Auth-ready API boundaries:
+- Every workbench route now attaches response headers:
+  - `x-openlvm-request-id`
+  - `x-openlvm-user-id`
+  - `x-openlvm-authenticated`
+- You can pass `x-openlvm-user-id` in requests to scope request identity before full auth/session rollout.
 
 Run tests:
 
