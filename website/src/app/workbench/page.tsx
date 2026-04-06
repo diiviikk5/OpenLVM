@@ -121,6 +121,7 @@ export default function WorkbenchPage() {
   const [overview, setOverview] = useState<Overview | null>(null);
   const [error, setError] = useState("");
   const [msg, setMsg] = useState("");
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   const [selectedCollection, setSelectedCollection] = useState("");
   const [selectedRun, setSelectedRun] = useState("");
@@ -136,6 +137,11 @@ export default function WorkbenchPage() {
   const [runFilterScenario, setRunFilterScenario] = useState("all");
   const [runFilterStatus, setRunFilterStatus] = useState("all");
   const [runFilterFork, setRunFilterFork] = useState("");
+  const [pruneKeepLatest, setPruneKeepLatest] = useState("10");
+  const [quickPrompt, setQuickPrompt] = useState("");
+  const [quickConfigPath, setQuickConfigPath] = useState("examples/swarm.yaml");
+  const [quickRunning, setQuickRunning] = useState(false);
+  const [quickLastRun, setQuickLastRun] = useState<Run | null>(null);
 
   const [workspaceName, setWorkspaceName] = useState("");
   const [collectionWorkspace, setCollectionWorkspace] = useState("");
@@ -240,6 +246,61 @@ export default function WorkbenchPage() {
     setScenarioName(s.name);
     setScenarioConfig(s.config_path);
     setScenarioInput(s.input_text);
+  };
+
+  const ensureQuickCollection = async (): Promise<string> => {
+    if (selectedCollection) return selectedCollection;
+    const current = await fetchOverview();
+    let workspaceId = current.workspaces[0]?.workspace_id;
+    if (!workspaceId) {
+      const created = await postJson<Workspace>("/api/workbench/workspace", {
+        name: "Quick Workspace",
+      });
+      workspaceId = created.workspace_id;
+    }
+    const existingQuick = current.collections.find((c) => c.workspace_id === workspaceId);
+    let collectionId = existingQuick?.collection_id;
+    if (!collectionId) {
+      const createdCollection = await postJson<Collection>("/api/workbench/collection", {
+        workspace_id: workspaceId,
+        name: "Quick Collection",
+      });
+      collectionId = createdCollection.collection_id;
+    }
+    setCollectionWorkspace(workspaceId);
+    setSelectedCollection(collectionId);
+    setScenarioCollection(collectionId);
+    return collectionId;
+  };
+
+  const runQuickTest = async () => {
+    if (!quickPrompt.trim()) {
+      setError("Enter a prompt first");
+      return;
+    }
+    setQuickRunning(true);
+    try {
+      const collectionId = await ensureQuickCollection();
+      const scenarioName = `quick-${Date.now()}`;
+      await postJson("/api/workbench/scenario", {
+        collection_id: collectionId,
+        name: scenarioName,
+        config_path: quickConfigPath,
+        input_text: quickPrompt.trim(),
+      });
+      const run = await postJson<Run>("/api/workbench/run", { collection_id: collectionId });
+      setQuickLastRun(run);
+      setSelectedRun(run.run_id);
+      setBaselineRun(run.run_id);
+      setLastRunId(run.run_id);
+      setQuickPrompt("");
+      await load();
+      setMsg(`Quick run complete: ${run.run_id}`);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setQuickRunning(false);
+    }
   };
 
   useEffect(() => {
@@ -393,12 +454,123 @@ export default function WorkbenchPage() {
     }
   };
 
+  const deleteSavedArtifact = async (artifactId: string) => {
+    try {
+      await postJson<{ deleted: boolean }>("/api/workbench/artifact", { artifact_id: artifactId }, "DELETE");
+      await load();
+      setMsg("Artifact deleted");
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  const pruneSavedArtifacts = async () => {
+    if (!selectedCollection) return;
+    const keepLatest = Number(pruneKeepLatest);
+    if (Number.isNaN(keepLatest) || keepLatest < 0) {
+      setError("keep_latest must be >= 0");
+      return;
+    }
+    try {
+      const result = await postJson<{ deleted_count: number; keep_latest: number }>(
+        "/api/workbench/artifact",
+        { collection_id: selectedCollection, keep_latest: keepLatest },
+        "DELETE"
+      );
+      await load();
+      setMsg(`Artifacts pruned: deleted ${result.deleted_count}, kept ${result.keep_latest}`);
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  const replayFromArtifact = async (artifactId: string) => {
+    try {
+      const res = await fetch(`/api/workbench/artifact?artifact_id=${encodeURIComponent(artifactId)}&format=json`, { cache: "no-store" });
+      const data = (await res.json()) as {
+        candidate_run_id?: string;
+        baseline_ids?: string[];
+        error?: string;
+      };
+      if (!res.ok || data.error || !data.candidate_run_id) {
+        throw new Error(data.error || "artifact replay failed");
+      }
+      setSelectedRun(data.candidate_run_id);
+      setSelectedBaselines(data.baseline_ids || []);
+      const resp = await postJson<CompareResponse>("/api/workbench/compare", {
+        collection_id: selectedCollection,
+        run_id: data.candidate_run_id,
+        baseline_ids: data.baseline_ids || [],
+      });
+      setCompare(resp);
+      setMsg(`Replayed compare from artifact ${artifactId}`);
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
   return (
     <main className="min-h-screen bg-near-black text-ivory p-6">
       <h1 className="text-3xl mb-3">OpenLVM Workbench</h1>
       {error && <p className="text-coral mb-3">{error}</p>}
       {msg && <p className="text-accent-emerald mb-3">{msg}</p>}
 
+      <section className="border border-border-dark rounded-xl p-4 mb-4">
+        <div className="flex items-center justify-between gap-2 mb-2">
+          <h2 className="text-xl">Quick Run</h2>
+          <button className="border border-border-dark px-3 py-1 rounded text-sm" onClick={() => setShowAdvanced((v) => !v)}>
+            {showAdvanced ? "Hide Advanced" : "Show Advanced"}
+          </button>
+        </div>
+        <p className="text-sm text-warm-silver mb-2">Paste one test input and run. Workspace/collection setup is handled automatically if missing.</p>
+        <div className="grid gap-2 md:grid-cols-4">
+          <input
+            className="bg-dark-surface p-2 rounded md:col-span-3"
+            placeholder="Test prompt (e.g. Cancel my subscription)"
+            value={quickPrompt}
+            onChange={(e) => setQuickPrompt(e.target.value)}
+          />
+          <input
+            className="bg-dark-surface p-2 rounded"
+            placeholder="Config path"
+            value={quickConfigPath}
+            onChange={(e) => setQuickConfigPath(e.target.value)}
+          />
+        </div>
+        <div className="mt-2 flex gap-2">
+          <button className="bg-terracotta px-3 py-1 rounded" disabled={quickRunning} onClick={() => void runQuickTest()}>
+            {quickRunning ? "Running..." : "Run Quick Test"}
+          </button>
+          {quickLastRun && (
+            <button
+              className="border border-border-dark px-3 py-1 rounded"
+              onClick={async () => {
+                try {
+                  await postJson("/api/workbench/baseline", {
+                    collection_id: selectedCollection,
+                    run_id: quickLastRun.run_id,
+                    label: `quick-${new Date().toISOString().slice(0, 19)}`,
+                  });
+                  await load();
+                  setMsg("Quick baseline saved");
+                } catch (e) {
+                  setError(String(e));
+                }
+              }}
+            >
+              Save Quick Baseline
+            </button>
+          )}
+        </div>
+        {quickLastRun && (
+          <p className="mt-2 text-sm text-warm-silver">
+            last quick run: {quickLastRun.run_id} | scenarios {quickLastRun.scenarios_executed} | passed {quickLastRun.summary.passed ?? 0} | warnings {quickLastRun.summary.warnings ?? 0}
+          </p>
+        )}
+      </section>
+
+      {showAdvanced && (
+      <>
       <div className="grid gap-4 md:grid-cols-2">
         <section className="border border-border-dark rounded-xl p-4">
           <h2 className="text-xl mb-2">Setup</h2>
@@ -452,6 +624,8 @@ export default function WorkbenchPage() {
           {scenarios.length === 0 && <p className="text-warm-silver">No scenarios yet.</p>}
         </div>
       </section>
+      </>
+      )}
 
       <section className="border border-border-dark rounded-xl p-4 mt-4">
         <h2 className="text-xl mb-2">Run and Compare</h2>
@@ -583,7 +757,20 @@ export default function WorkbenchPage() {
       )}
 
       <section className="border border-border-dark rounded-xl p-4 mt-4">
-        <h2 className="text-xl mb-2">Saved Compare Artifacts</h2>
+        <div className="flex items-center justify-between gap-2 mb-2">
+          <h2 className="text-xl">Saved Compare Artifacts</h2>
+          <div className="flex gap-2 items-center">
+            <input
+              className="bg-dark-surface p-2 rounded text-sm w-24"
+              value={pruneKeepLatest}
+              onChange={(e) => setPruneKeepLatest(e.target.value)}
+              placeholder="keep"
+            />
+            <button className="border border-border-dark px-3 py-1 rounded text-sm" onClick={() => void pruneSavedArtifacts()}>
+              Prune
+            </button>
+          </div>
+        </div>
         <div className="space-y-2 text-sm max-h-56 overflow-auto">
           {compareArtifacts.map((artifact) => (
             <div key={artifact.artifact_id} className="flex items-center justify-between border border-border-dark rounded p-2">
@@ -594,8 +781,10 @@ export default function WorkbenchPage() {
                 </div>
               </div>
               <div className="flex gap-2">
+                <button className="border border-border-dark px-2 py-1 rounded" onClick={() => void replayFromArtifact(artifact.artifact_id)}>Replay</button>
                 <button className="border border-border-dark px-2 py-1 rounded" onClick={() => void downloadSavedArtifact(artifact.artifact_id, "json")}>JSON</button>
                 <button className="border border-border-dark px-2 py-1 rounded" onClick={() => void downloadSavedArtifact(artifact.artifact_id, "csv")}>CSV</button>
+                <button className="border border-coral px-2 py-1 rounded text-coral" onClick={() => void deleteSavedArtifact(artifact.artifact_id)}>Delete</button>
               </div>
             </div>
           ))}

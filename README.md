@@ -51,7 +51,7 @@ openlvm doctor
 ## Workbench
 
 The Next.js workbench now reads real data from the local OpenLVM stores and can trigger collection runs and baseline compare through API routes.
-It includes run inspection filters (scenario/fork/status), baseline search/sort with quick-select presets, and compare artifact export (`JSON` and `CSV`) for QA workflows.
+It includes a Quick Run mode (single input, auto setup), run inspection filters (scenario/fork/status), baseline search/sort with quick-select presets, and compare artifact export (`JSON` and `CSV`) for QA workflows.
 
 Run it:
 
@@ -68,7 +68,7 @@ Available API routes:
 - `POST/PATCH/DELETE /api/workbench/collection`
 - `GET/POST/PATCH/DELETE /api/workbench/scenario`
 - `POST /api/workbench/baseline`
-- `GET/POST /api/workbench/artifact`
+- `GET/POST/DELETE /api/workbench/artifact` (save/list/download/delete/prune compare artifacts)
 
 `POST /api/workbench/compare` accepts optional `baseline_ids` to compare one candidate run against multiple saved baselines in a single call.
 `GET /api/workbench/run` returns run inspection details plus trace summary for a given `run_id` (or `latest`).
