@@ -42,6 +42,15 @@ type Overview = {
   baselines_by_collection: Record<string, Baseline[]>;
   scenarios_by_collection: Record<string, Scenario[]>;
   recent_runs: Run[];
+  audit_events: Array<{
+    event_id: string;
+    actor_id: string;
+    action: string;
+    entity_type: string;
+    entity_id: string;
+    details: Record<string, unknown>;
+    created_at: string;
+  }>;
 };
 
 async function fetchOverview(): Promise<Overview> {
@@ -166,11 +175,15 @@ export default function WorkbenchPage() {
           <div className="space-y-2">
             <input className="w-full bg-dark-surface p-2 rounded" placeholder="Workspace name" value={workspaceName} onChange={(e) => setWorkspaceName(e.target.value)} />
             <button className="bg-terracotta px-3 py-1 rounded" onClick={async () => { try { await postJson("/api/workbench/workspace", { name: workspaceName }); setWorkspaceName(""); await load(); setMsg("Workspace created"); } catch (e) { setError(String(e)); } }}>Create Workspace</button>
+            <button className="border border-border-dark px-3 py-1 rounded" onClick={async () => { try { if (!collectionWorkspace || !workspaceName) return; await postJson("/api/workbench/workspace", { workspace_id: collectionWorkspace, name: workspaceName }, "PATCH"); setWorkspaceName(""); await load(); setMsg("Workspace updated"); } catch (e) { setError(String(e)); } }}>Update Selected Workspace</button>
+            <button className="border border-coral px-3 py-1 rounded text-coral" onClick={async () => { try { if (!collectionWorkspace) return; await postJson("/api/workbench/workspace", { workspace_id: collectionWorkspace }, "DELETE"); await load(); setMsg("Workspace deleted"); } catch (e) { setError(String(e)); } }}>Delete Selected Workspace</button>
             <select className="w-full bg-dark-surface p-2 rounded" value={collectionWorkspace} onChange={(e) => setCollectionWorkspace(e.target.value)}>
               {(overview?.workspaces || []).map((w) => <option key={w.workspace_id} value={w.workspace_id}>{w.name}</option>)}
             </select>
             <input className="w-full bg-dark-surface p-2 rounded" placeholder="Collection name" value={collectionName} onChange={(e) => setCollectionName(e.target.value)} />
             <button className="bg-terracotta px-3 py-1 rounded" onClick={async () => { try { const c = await postJson<Collection>("/api/workbench/collection", { workspace_id: collectionWorkspace, name: collectionName }); setCollectionName(""); setSelectedCollection(c.collection_id); setScenarioCollection(c.collection_id); await load(); setMsg("Collection created"); } catch (e) { setError(String(e)); } }}>Create Collection</button>
+            <button className="border border-border-dark px-3 py-1 rounded" onClick={async () => { try { if (!selectedCollection || !collectionName) return; await postJson("/api/workbench/collection", { collection_id: selectedCollection, name: collectionName }, "PATCH"); setCollectionName(""); await load(); setMsg("Collection updated"); } catch (e) { setError(String(e)); } }}>Update Selected Collection</button>
+            <button className="border border-coral px-3 py-1 rounded text-coral" onClick={async () => { try { if (!selectedCollection) return; await postJson("/api/workbench/collection", { collection_id: selectedCollection }, "DELETE"); await load(); setMsg("Collection deleted"); } catch (e) { setError(String(e)); } }}>Delete Selected Collection</button>
           </div>
         </section>
 
@@ -257,6 +270,21 @@ export default function WorkbenchPage() {
           ))}
         </section>
       )}
+
+      <section className="border border-border-dark rounded-xl p-4 mt-4">
+        <h2 className="text-xl mb-2">Audit Events</h2>
+        <div className="space-y-1 text-sm max-h-56 overflow-auto">
+          {(overview?.audit_events || []).slice(0, 50).map((evt) => (
+            <div key={evt.event_id} className="border-b border-border-dark/50 pb-1">
+              <span className="text-warm-silver">{new Date(evt.created_at).toLocaleString()} </span>
+              <span>{evt.actor_id}</span>
+              <span className="text-warm-silver"> {evt.action} </span>
+              <span>{evt.entity_type}:{evt.entity_id}</span>
+            </div>
+          ))}
+          {(overview?.audit_events || []).length === 0 && <p className="text-warm-silver">No audit events yet.</p>}
+        </div>
+      </section>
     </main>
   );
 }
