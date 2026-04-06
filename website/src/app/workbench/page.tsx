@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 
 type Workspace = { workspace_id: string; name: string };
 type Collection = { collection_id: string; workspace_id: string; name: string };
-type Baseline = { baseline_id: string; run_id: string; label: string };
+type Baseline = { baseline_id: string; run_id: string; label: string; created_at?: string };
 type Scenario = {
   scenario_id: string;
   collection_id: string;
@@ -115,6 +115,8 @@ export default function WorkbenchPage() {
   const [selectedCollection, setSelectedCollection] = useState("");
   const [selectedRun, setSelectedRun] = useState("");
   const [selectedBaselines, setSelectedBaselines] = useState<string[]>([]);
+  const [baselineSearch, setBaselineSearch] = useState("");
+  const [baselineSort, setBaselineSort] = useState<"newest" | "oldest" | "label">("newest");
   const [isRunning, setIsRunning] = useState(false);
   const [isComparing, setIsComparing] = useState(false);
   const [lastRunId, setLastRunId] = useState("");
@@ -181,6 +183,21 @@ export default function WorkbenchPage() {
     () => (overview && selectedCollection ? overview.baselines_by_collection[selectedCollection] || [] : []),
     [overview, selectedCollection]
   );
+  const filteredBaselines = useMemo(() => {
+    const search = baselineSearch.trim().toLowerCase();
+    const rows = [...baselines].filter((row) => {
+      if (!search) return true;
+      return row.label.toLowerCase().includes(search) || row.run_id.toLowerCase().includes(search);
+    });
+    rows.sort((a, b) => {
+      if (baselineSort === "label") return a.label.localeCompare(b.label);
+      const aTime = new Date(a.created_at || 0).getTime();
+      const bTime = new Date(b.created_at || 0).getTime();
+      if (baselineSort === "oldest") return aTime - bTime;
+      return bTime - aTime;
+    });
+    return rows;
+  }, [baselines, baselineSearch, baselineSort]);
   const scenarios = useMemo(
     () => (overview && selectedCollection ? overview.scenarios_by_collection[selectedCollection] || [] : []),
     [overview, selectedCollection]
@@ -194,6 +211,13 @@ export default function WorkbenchPage() {
 
   const toggleBaseline = (id: string) =>
     setSelectedBaselines((arr) => (arr.includes(id) ? arr.filter((x) => x !== id) : [...arr, id]));
+  const selectLatestBaselines = (count: number) => {
+    const ids = [...baselines]
+      .sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime())
+      .slice(0, count)
+      .map((b) => b.baseline_id);
+    setSelectedBaselines(ids);
+  };
 
   const setEditing = (s: Scenario) => {
     setScenarioEditId(s.scenario_id);
@@ -250,8 +274,18 @@ export default function WorkbenchPage() {
 
   const exportCompareJson = () => {
     if (!compare) return;
+    const exportMeta = {
+      export_version: "openlvm.compare.v1",
+      exported_at: new Date().toISOString(),
+      collection_id: selectedCollection,
+      candidate_run_id: compare.candidate_run_id,
+      selected_baseline_ids: selectedBaselines,
+      baseline_count: compare.diffs.length,
+    };
+    const payload = { metadata: exportMeta, compare };
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-    downloadText(`openlvm-compare-${stamp}.json`, JSON.stringify(compare, null, 2), "application/json");
+    const candidate = compare.candidate_run_id.replace(/[^a-zA-Z0-9_-]/g, "_");
+    downloadText(`openlvm-compare-${candidate}-${stamp}.json`, JSON.stringify(payload, null, 2), "application/json");
   };
 
   const exportCompareCsv = () => {
@@ -261,6 +295,9 @@ export default function WorkbenchPage() {
       "baseline_label",
       "baseline_run_id",
       "candidate_run_id",
+      "export_version",
+      "exported_at",
+      "collection_id",
       "scenario_name",
       "baseline_status",
       "candidate_status",
@@ -276,6 +313,8 @@ export default function WorkbenchPage() {
     ];
     const escapeCsv = (value: unknown) => `"${String(value ?? "").replace(/"/g, "\"\"")}"`;
     const lines = [header.map(escapeCsv).join(",")];
+    const exportVersion = "openlvm.compare.v1";
+    const exportedAt = new Date().toISOString();
     for (const diff of compare.diffs) {
       for (const scenario of diff.scenario_diffs) {
         lines.push(
@@ -284,6 +323,9 @@ export default function WorkbenchPage() {
             diff.baseline_label || "",
             diff.baseline_run_id,
             diff.candidate_run_id,
+            exportVersion,
+            exportedAt,
+            selectedCollection,
             scenario.name,
             scenario.baseline_status,
             scenario.candidate_status,
@@ -303,7 +345,8 @@ export default function WorkbenchPage() {
       }
     }
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-    downloadText(`openlvm-compare-${stamp}.csv`, lines.join("\n"), "text/csv");
+    const candidate = compare.candidate_run_id.replace(/[^a-zA-Z0-9_-]/g, "_");
+    downloadText(`openlvm-compare-${candidate}-${stamp}.csv`, lines.join("\n"), "text/csv");
   };
 
   return (
@@ -379,12 +422,35 @@ export default function WorkbenchPage() {
         </div>
         <div className="mt-2 p-2 border border-border-dark rounded">
           <p className="text-sm text-warm-silver mb-1">Choose baseline(s)</p>
-          {baselines.map((b) => (
+          <div className="grid gap-2 md:grid-cols-3 mb-2">
+            <input
+              className="bg-dark-surface p-2 rounded text-sm"
+              placeholder="Search baseline label/run"
+              value={baselineSearch}
+              onChange={(e) => setBaselineSearch(e.target.value)}
+            />
+            <select
+              className="bg-dark-surface p-2 rounded text-sm"
+              value={baselineSort}
+              onChange={(e) => setBaselineSort(e.target.value as "newest" | "oldest" | "label")}
+            >
+              <option value="newest">Newest first</option>
+              <option value="oldest">Oldest first</option>
+              <option value="label">Label A-Z</option>
+            </select>
+            <div className="flex gap-2">
+              <button className="border border-border-dark px-2 py-1 rounded text-xs" onClick={() => setSelectedBaselines(filteredBaselines.map((b) => b.baseline_id))}>All</button>
+              <button className="border border-border-dark px-2 py-1 rounded text-xs" onClick={() => setSelectedBaselines([])}>None</button>
+              <button className="border border-border-dark px-2 py-1 rounded text-xs" onClick={() => selectLatestBaselines(2)}>Latest 2</button>
+              <button className="border border-border-dark px-2 py-1 rounded text-xs" onClick={() => selectLatestBaselines(3)}>Latest 3</button>
+            </div>
+          </div>
+          {filteredBaselines.map((b) => (
             <label key={b.baseline_id} className="block text-sm">
               <input type="checkbox" checked={selectedBaselines.includes(b.baseline_id)} onChange={() => toggleBaseline(b.baseline_id)} /> {b.label} ({b.run_id})
             </label>
           ))}
-          {baselines.length === 0 && <p className="text-sm text-warm-silver">No baselines.</p>}
+          {filteredBaselines.length === 0 && <p className="text-sm text-warm-silver">No baselines match current filters.</p>}
         </div>
         <div className="mt-2 flex gap-2">
           <input className="bg-dark-surface p-2 rounded flex-1" placeholder="Baseline run id" value={baselineRun} onChange={(e) => setBaselineRun(e.target.value)} />
