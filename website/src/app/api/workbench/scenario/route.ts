@@ -40,7 +40,7 @@ export async function POST(request: NextRequest) {
       payload.name,
       payload.config_path,
       payload.input_text,
-      ctx.userId,
+      ctx.actorId,
     ]);
     if (typeof data === "object" && data && "error" in data) {
       return contextError("Scenario save failed", ctx, 500, String((data as { error: string }).error));
@@ -69,7 +69,7 @@ export async function PATCH(request: NextRequest) {
       payload.name,
       payload.config_path,
       payload.input_text,
-      ctx.userId,
+      ctx.actorId,
     ]);
     if (typeof data === "object" && data && "error" in data) {
       return contextError("Scenario update failed", ctx, 500, String((data as { error: string }).error));
@@ -88,7 +88,7 @@ export async function DELETE(request: NextRequest) {
       return contextError("scenario_id is required", ctx, 400);
     }
 
-    const data = await runWorkbenchBridge("delete_scenario", [payload.scenario_id, ctx.userId]);
+    const data = await runWorkbenchBridge("delete_scenario", [payload.scenario_id, ctx.actorId]);
     if (typeof data === "object" && data && "error" in data) {
       return contextError("Scenario delete failed", ctx, 500, String((data as { error: string }).error));
     }

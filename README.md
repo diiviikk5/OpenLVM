@@ -75,8 +75,11 @@ Auth-ready API boundaries:
 - Every workbench route now attaches response headers:
   - `x-openlvm-request-id`
   - `x-openlvm-user-id`
+  - `x-openlvm-session-id`
+  - `x-openlvm-actor-id`
   - `x-openlvm-authenticated`
 - You can pass `x-openlvm-user-id` in requests to scope request identity before full auth/session rollout.
+- You can also pass `x-openlvm-session-id`; mutating API calls now use `actor_id=user#session` for audit-safe context propagation.
 
 Run tests:
 

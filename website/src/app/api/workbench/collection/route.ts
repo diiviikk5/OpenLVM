@@ -20,7 +20,7 @@ export async function POST(request: NextRequest) {
     const data = await runWorkbenchBridge("create_collection", [
       payload.workspace_id,
       payload.name,
-      ctx.userId,
+      ctx.actorId,
       payload.description || "",
     ]);
     if (typeof data === "object" && data && "error" in data) {
@@ -45,7 +45,7 @@ export async function PATCH(request: NextRequest) {
     }
     const data = await runWorkbenchBridge("update_collection", [
       payload.collection_id,
-      ctx.userId,
+      ctx.actorId,
       payload.name || "",
       payload.description || "",
     ]);
@@ -65,7 +65,7 @@ export async function DELETE(request: NextRequest) {
     if (!payload.collection_id) {
       return contextError("collection_id is required", ctx, 400);
     }
-    const data = await runWorkbenchBridge("delete_collection", [payload.collection_id, ctx.userId]);
+    const data = await runWorkbenchBridge("delete_collection", [payload.collection_id, ctx.actorId]);
     if (typeof data === "object" && data && "error" in data) {
       return contextError("Collection delete failed", ctx, 500, String((data as { error: string }).error));
     }

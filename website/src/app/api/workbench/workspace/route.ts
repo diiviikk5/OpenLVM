@@ -12,7 +12,7 @@ export async function POST(request: NextRequest) {
     if (!payload.name) {
       return contextError("name is required", ctx, 400);
     }
-    const data = await runWorkbenchBridge("create_workspace", [payload.name, ctx.userId, payload.description || ""]);
+    const data = await runWorkbenchBridge("create_workspace", [payload.name, ctx.actorId, payload.description || ""]);
     if (typeof data === "object" && data && "error" in data) {
       return contextError("Workspace creation failed", ctx, 500, String((data as { error: string }).error));
     }
@@ -35,7 +35,7 @@ export async function PATCH(request: NextRequest) {
     }
     const data = await runWorkbenchBridge("update_workspace", [
       payload.workspace_id,
-      ctx.userId,
+      ctx.actorId,
       payload.name || "",
       payload.description || "",
     ]);
@@ -55,7 +55,7 @@ export async function DELETE(request: NextRequest) {
     if (!payload.workspace_id) {
       return contextError("workspace_id is required", ctx, 400);
     }
-    const data = await runWorkbenchBridge("delete_workspace", [payload.workspace_id, ctx.userId]);
+    const data = await runWorkbenchBridge("delete_workspace", [payload.workspace_id, ctx.actorId]);
     if (typeof data === "object" && data && "error" in data) {
       return contextError("Workspace delete failed", ctx, 500, String((data as { error: string }).error));
     }
