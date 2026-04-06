@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 export async function GET(request: NextRequest) {
   const ctx = resolveApiContext(request);
   try {
-    const data = await runWorkbenchBridge("overview");
+    const data = await runWorkbenchBridge("overview", [ctx.workspaceId || ""]);
     if (typeof data === "object" && data && "error" in data) {
       return contextError("Failed to load overview", ctx, 500, String((data as { error: string }).error));
     }

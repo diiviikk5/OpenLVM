@@ -19,14 +19,18 @@ def _bootstrap() -> None:
         sys.path.insert(0, str(python_dir))
 
 
-def _overview() -> dict:
+def _overview(args: list[str]) -> dict:
     from openlvm.eval_store import EvalStore
     from openlvm.operator_store import OperatorStore
 
+    workspace_scope = args[0] if args else ""
     op_store = OperatorStore()
     eval_store = EvalStore()
     workspaces = [ws.model_dump() for ws in op_store.list_workspaces()]
-    collections = [col.model_dump() for col in op_store.list_collections()]
+    collections = [
+        col.model_dump()
+        for col in op_store.list_collections(workspace_scope or None)
+    ]
     baselines_by_collection = {
         col["collection_id"]: [base.model_dump() for base in op_store.list_baselines(col["collection_id"])]
         for col in collections
@@ -55,6 +59,9 @@ def _run_collection(args: list[str]) -> dict:
     collection_id = args[0]
     scenarios = int(args[1]) if len(args) > 1 and args[1] else None
     chaos_mode = args[2] if len(args) > 2 and args[2] else None
+    workspace_scope = args[3] if len(args) > 3 else ""
+    if workspace_scope:
+        _assert_collection_workspace(collection_id, workspace_scope)
     run = TestOrchestrator().run_collection(
         collection_id,
         scenarios=scenarios,
@@ -83,6 +90,9 @@ def _compare_baseline(args: list[str]) -> dict:
     collection_id = args[0]
     run_id = args[1]
     baseline_id_csv = args[2] if len(args) > 2 else ""
+    workspace_scope = args[3] if len(args) > 3 else ""
+    if workspace_scope:
+        _assert_collection_workspace(collection_id, workspace_scope)
     op_store = OperatorStore()
     baselines = op_store.list_baselines(collection_id)
     if not baselines:
@@ -108,6 +118,17 @@ def _resolve_config_path(config_path: str) -> str:
     if path.is_absolute():
         return str(path)
     return str((_repo_root() / path).resolve())
+
+
+def _assert_collection_workspace(collection_id: str, workspace_id: str) -> None:
+    from openlvm.operator_store import OperatorStore
+
+    summary = OperatorStore().get_collection_summary(collection_id)
+    actual_workspace = summary["workspace"]["workspace_id"]
+    if actual_workspace != workspace_id:
+        raise PermissionError(
+            f"collection {collection_id} is not in workspace scope {workspace_id}"
+        )
 
 
 def _create_workspace(args: list[str]) -> dict:
@@ -269,7 +290,7 @@ def _main() -> int:
 
     try:
         if command == "overview":
-            result = _overview()
+            result = _overview(args)
         elif command == "run_collection":
             result = _run_collection(args)
         elif command == "run_details":

@@ -80,6 +80,7 @@ Auth-ready API boundaries:
   - `x-openlvm-authenticated`
 - You can pass `x-openlvm-user-id` in requests to scope request identity before full auth/session rollout.
 - You can also pass `x-openlvm-session-id`; mutating API calls now use `actor_id=user#session` for audit-safe context propagation.
+- `x-openlvm-workspace-id` is now enforced for workbench overview/run/compare routes as a workspace scope boundary.
 
 Run tests:
 
