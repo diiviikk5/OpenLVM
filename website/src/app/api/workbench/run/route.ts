@@ -5,6 +5,20 @@ import { runWorkbenchBridge } from "@/lib/openlvm-bridge";
 
 export const dynamic = "force-dynamic";
 
+export async function GET(request: NextRequest) {
+  const ctx = resolveApiContext(request);
+  try {
+    const runId = request.nextUrl.searchParams.get("run_id") || "latest";
+    const data = await runWorkbenchBridge("run_details", [runId]);
+    if (typeof data === "object" && data && "error" in data) {
+      return contextError("Run inspection failed", ctx, 500, String((data as { error: string }).error));
+    }
+    return contextJson(data, ctx);
+  } catch (error) {
+    return contextError("Run inspection failed", ctx, 500, error instanceof Error ? error.message : undefined);
+  }
+}
+
 export async function POST(request: NextRequest) {
   const ctx = resolveApiContext(request);
   try {

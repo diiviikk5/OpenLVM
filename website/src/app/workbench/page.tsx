@@ -36,6 +36,31 @@ type Diff = {
   scenario_diffs: ScenarioDiff[];
 };
 type CompareResponse = { candidate_run_id: string; diffs: Diff[] };
+type RunInspection = {
+  run: {
+    run_id: string;
+    suite_name: string;
+    metadata: {
+      runtime_backend?: string;
+      traces?: Array<Record<string, unknown>>;
+    };
+    results: Array<{
+      name: string;
+      fork_id: number;
+      fork_parent_id?: number | null;
+      status: string;
+      score: number;
+      network_delay_ms: number;
+      warnings: string[];
+    }>;
+  };
+  trace_summary: {
+    runtime_backend: string;
+    trace_count: number;
+    scenario_count: number;
+    warning_events: number;
+  };
+};
 type Overview = {
   workspaces: Workspace[];
   collections: Collection[];
@@ -83,6 +108,7 @@ export default function WorkbenchPage() {
   const [isComparing, setIsComparing] = useState(false);
   const [lastRunId, setLastRunId] = useState("");
   const [compare, setCompare] = useState<CompareResponse | null>(null);
+  const [runInspection, setRunInspection] = useState<RunInspection | null>(null);
 
   const [workspaceName, setWorkspaceName] = useState("");
   const [collectionWorkspace, setCollectionWorkspace] = useState("");
@@ -162,6 +188,22 @@ export default function WorkbenchPage() {
     setScenarioConfig(s.config_path);
     setScenarioInput(s.input_text);
   };
+
+  useEffect(() => {
+    if (!selectedRun) return;
+    void (async () => {
+      try {
+        const res = await fetch(`/api/workbench/run?run_id=${encodeURIComponent(selectedRun)}`, { cache: "no-store" });
+        const data = (await res.json()) as RunInspection | { error?: string };
+        if (!res.ok || ("error" in data && data.error)) {
+          throw new Error(("error" in data ? data.error : undefined) || "run inspection failed");
+        }
+        setRunInspection(data as RunInspection);
+      } catch {
+        setRunInspection(null);
+      }
+    })();
+  }, [selectedRun]);
 
   return (
     <main className="min-h-screen bg-near-black text-ivory p-6">
@@ -251,6 +293,28 @@ export default function WorkbenchPage() {
         </div>
         {lastRunId && <p className="mt-2 text-sm text-accent-emerald">Latest run: {lastRunId}</p>}
       </section>
+
+      {runInspection && (
+        <section className="border border-border-dark rounded-xl p-4 mt-4">
+          <h2 className="text-xl mb-2">Run Inspection</h2>
+          <p className="text-sm text-warm-silver">
+            {runInspection.run.run_id} | backend {runInspection.trace_summary.runtime_backend} | traces {runInspection.trace_summary.trace_count} | warnings {runInspection.trace_summary.warning_events}
+          </p>
+          <div className="mt-2 space-y-1 text-sm max-h-56 overflow-auto">
+            {runInspection.run.results.map((result) => (
+              <div key={`${result.name}-${result.fork_id}`} className="border-b border-border-dark/50 pb-1">
+                <span>{result.name}</span>
+                <span className="text-warm-silver"> fork {result.fork_id}</span>
+                {result.fork_parent_id ? <span className="text-warm-silver"> parent {result.fork_parent_id}</span> : null}
+                <span className="text-warm-silver"> | {result.status}</span>
+                <span className="text-warm-silver"> | score {result.score.toFixed(2)}</span>
+                <span className="text-warm-silver"> | delay {result.network_delay_ms}ms</span>
+                {result.warnings.length ? <span className="text-coral"> | {result.warnings[0]}</span> : null}
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {compare && (
         <section className="border border-border-dark rounded-xl p-4 mt-4">

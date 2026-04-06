@@ -60,6 +60,7 @@ npm --prefix website run dev
 
 Available API routes:
 - `GET /api/workbench/overview`
+- `GET /api/workbench/run`
 - `POST /api/workbench/run`
 - `POST /api/workbench/compare`
 - `POST/PATCH/DELETE /api/workbench/workspace`
@@ -68,6 +69,7 @@ Available API routes:
 - `POST /api/workbench/baseline`
 
 `POST /api/workbench/compare` accepts optional `baseline_ids` to compare one candidate run against multiple saved baselines in a single call.
+`GET /api/workbench/run` returns run inspection details plus trace summary for a given `run_id` (or `latest`).
 
 Auth-ready API boundaries:
 - Every workbench route now attaches response headers:

@@ -63,6 +63,16 @@ def _run_collection(args: list[str]) -> dict:
     return run.model_dump()
 
 
+def _run_details(args: list[str]) -> dict:
+    from openlvm.eval_store import EvalStore
+
+    run_id = args[0] if args else "latest"
+    store = EvalStore()
+    run = store.get_run(run_id).model_dump()
+    trace_summary = store.get_trace_summary(run_id)
+    return {"run": run, "trace_summary": trace_summary}
+
+
 def _compare_baseline(args: list[str]) -> dict:
     if len(args) < 2:
         raise ValueError("collection_id and run_id are required")
@@ -262,6 +272,8 @@ def _main() -> int:
             result = _overview()
         elif command == "run_collection":
             result = _run_collection(args)
+        elif command == "run_details":
+            result = _run_details(args)
         elif command == "compare_baseline":
             result = _compare_baseline(args)
         elif command == "create_workspace":
