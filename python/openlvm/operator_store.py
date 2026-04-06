@@ -555,6 +555,78 @@ class OperatorStore:
             raise KeyError(f"Compare artifact not found: {artifact_id}")
         return self._row_to_compare_artifact(row)
 
+    def delete_compare_artifact(self, artifact_id: str, *, actor_id: str = "system") -> bool:
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT collection_id, candidate_run_id, filename
+                FROM compare_artifacts
+                WHERE artifact_id = ?
+                """,
+                (artifact_id,),
+            ).fetchone()
+            deleted = conn.execute(
+                "DELETE FROM compare_artifacts WHERE artifact_id = ?",
+                (artifact_id,),
+            ).rowcount
+            if deleted > 0:
+                details = {"artifact_id": artifact_id}
+                if row is not None:
+                    details.update(
+                        {
+                            "collection_id": row["collection_id"],
+                            "candidate_run_id": row["candidate_run_id"],
+                            "filename": row["filename"],
+                        }
+                    )
+                self._insert_audit_event(
+                    conn,
+                    actor_id=actor_id,
+                    action="compare_artifact.delete",
+                    entity_type="compare_artifact",
+                    entity_id=artifact_id,
+                    details=details,
+                )
+        return deleted > 0
+
+    def prune_compare_artifacts(
+        self,
+        collection_id: str,
+        keep_latest: int,
+        *,
+        actor_id: str = "system",
+    ) -> int:
+        keep_latest = max(0, int(keep_latest))
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT artifact_id
+                FROM compare_artifacts
+                WHERE collection_id = ?
+                ORDER BY created_at DESC
+                """,
+                (collection_id,),
+            ).fetchall()
+            artifact_ids = [row["artifact_id"] for row in rows]
+            to_delete = artifact_ids[keep_latest:]
+            if to_delete:
+                conn.executemany(
+                    "DELETE FROM compare_artifacts WHERE artifact_id = ?",
+                    [(artifact_id,) for artifact_id in to_delete],
+                )
+            self._insert_audit_event(
+                conn,
+                actor_id=actor_id,
+                action="compare_artifact.prune",
+                entity_type="collection",
+                entity_id=collection_id,
+                details={
+                    "keep_latest": keep_latest,
+                    "deleted_count": len(to_delete),
+                },
+            )
+        return len(to_delete)
+
     def get_collection_summary(self, collection_id: str) -> dict:
         collection = self.get_collection(collection_id)
         workspace = self.get_workspace(collection.workspace_id)

@@ -62,3 +62,39 @@ export async function POST(request: NextRequest) {
   }
 }
 
+export async function DELETE(request: NextRequest) {
+  const ctx = resolveApiContext(request);
+  try {
+    const payload = (await request.json()) as {
+      artifact_id?: string;
+      collection_id?: string;
+      keep_latest?: number;
+    };
+    if (payload.artifact_id) {
+      const data = await runWorkbenchBridge("delete_compare_artifact", [
+        payload.artifact_id,
+        ctx.actorId,
+        ctx.workspaceId || "",
+      ]);
+      if (typeof data === "object" && data && "error" in data) {
+        return contextError("Artifact delete failed", ctx, 500, String((data as { error: string }).error));
+      }
+      return contextJson(data, ctx);
+    }
+    if (payload.collection_id && typeof payload.keep_latest === "number") {
+      const data = await runWorkbenchBridge("prune_compare_artifacts", [
+        payload.collection_id,
+        String(payload.keep_latest),
+        ctx.actorId,
+        ctx.workspaceId || "",
+      ]);
+      if (typeof data === "object" && data && "error" in data) {
+        return contextError("Artifact prune failed", ctx, 500, String((data as { error: string }).error));
+      }
+      return contextJson(data, ctx);
+    }
+    return contextError("artifact_id or collection_id+keep_latest is required", ctx, 400);
+  } catch (error) {
+    return contextError("Artifact delete/prune failed", ctx, 500, error instanceof Error ? error.message : undefined);
+  }
+}

@@ -211,11 +211,49 @@ def _download_compare_artifact(args: list[str]) -> dict:
     filename_base = artifact.filename.rsplit(".", 1)[0]
     return {
         "artifact_id": artifact.artifact_id,
+        "collection_id": artifact.collection_id,
+        "candidate_run_id": artifact.candidate_run_id,
+        "baseline_ids": artifact.baseline_ids,
         "filename": f"{filename_base}.{extension}",
         "mime_type": mime_type,
         "content": content,
         "created_at": artifact.created_at,
     }
+
+
+def _delete_compare_artifact(args: list[str]) -> dict:
+    if len(args) < 2:
+        raise ValueError("artifact_id and actor_id are required")
+    from openlvm.operator_store import OperatorStore
+
+    artifact_id = args[0]
+    actor_id = args[1]
+    workspace_scope = args[2] if len(args) > 2 else ""
+    store = OperatorStore()
+    artifact = store.get_compare_artifact(artifact_id)
+    if workspace_scope:
+        _assert_collection_workspace(artifact.collection_id, workspace_scope)
+    deleted = store.delete_compare_artifact(artifact_id, actor_id=actor_id)
+    return {"deleted": deleted, "artifact_id": artifact_id}
+
+
+def _prune_compare_artifacts(args: list[str]) -> dict:
+    if len(args) < 3:
+        raise ValueError("collection_id, keep_latest, and actor_id are required")
+    from openlvm.operator_store import OperatorStore
+
+    collection_id = args[0]
+    keep_latest = int(args[1])
+    actor_id = args[2]
+    workspace_scope = args[3] if len(args) > 3 else ""
+    if workspace_scope:
+        _assert_collection_workspace(collection_id, workspace_scope)
+    deleted_count = OperatorStore().prune_compare_artifacts(
+        collection_id,
+        keep_latest,
+        actor_id=actor_id,
+    )
+    return {"collection_id": collection_id, "deleted_count": deleted_count, "keep_latest": keep_latest}
 
 
 def _compare_payload_to_csv(payload: dict) -> str:
@@ -446,6 +484,10 @@ def _main() -> int:
             result = _list_compare_artifacts(args)
         elif command == "download_compare_artifact":
             result = _download_compare_artifact(args)
+        elif command == "delete_compare_artifact":
+            result = _delete_compare_artifact(args)
+        elif command == "prune_compare_artifacts":
+            result = _prune_compare_artifacts(args)
         elif command == "create_workspace":
             result = _create_workspace(args)
         elif command == "update_workspace":

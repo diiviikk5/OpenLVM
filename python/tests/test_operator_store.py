@@ -71,4 +71,18 @@ def test_operator_store_compare_artifacts(tmp_path):
     assert fetched.candidate_run_id == "run-222"
     assert fetched.baseline_ids == ["base-1"]
     assert fetched.payload["candidate_run_id"] == "run-222"
-    assert any(event["action"] == "compare_artifact.create" for event in store.list_audit_events(limit=20))
+    artifact_2 = store.save_compare_artifact(
+        collection.collection_id,
+        "run-333",
+        ["base-2"],
+        payload,
+        actor_id="alice",
+    )
+    deleted = store.delete_compare_artifact(artifact.artifact_id, actor_id="alice")
+    assert deleted is True
+    pruned_count = store.prune_compare_artifacts(collection.collection_id, keep_latest=0, actor_id="alice")
+    assert pruned_count >= 1
+    actions = [event["action"] for event in store.list_audit_events(limit=50)]
+    assert "compare_artifact.create" in actions
+    assert "compare_artifact.delete" in actions
+    assert "compare_artifact.prune" in actions
