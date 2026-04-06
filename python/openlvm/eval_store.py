@@ -131,6 +131,17 @@ class EvalStore:
             score_delta=round(candidate_score - baseline_score, 4),
         )
 
+    def get_trace_summary(self, run_id: str = "latest") -> dict:
+        run = self.get_run(run_id)
+        return {
+            "run_id": run.run_id,
+            "suite_name": run.suite_name,
+            "runtime_backend": run.metadata.get("runtime_backend", "unknown"),
+            "trace_count": len(run.metadata.get("traces", [])),
+            "scenario_count": len(run.results),
+            "warning_events": run.summary.get("warning_events", 0),
+        }
+
     def query(self, sql: str) -> list[dict]:
         with self._connect() as conn:
             rows = conn.execute(sql).fetchall()

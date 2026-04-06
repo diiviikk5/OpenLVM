@@ -82,6 +82,7 @@ class ScenarioRunResult(BaseModel):
     network_delay_ms: int = 0
     warnings: List[str] = Field(default_factory=list)
     metrics: Dict[str, float] = Field(default_factory=dict)
+    chaos_effects: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
 
 
 class AgentRunSummary(BaseModel):
@@ -113,3 +114,35 @@ class RunDiff(BaseModel):
     candidate_run_id: str
     summary_delta: Dict[str, int] = Field(default_factory=dict)
     score_delta: float = 0.0
+
+
+class WorkspaceRecord(BaseModel):
+    workspace_id: str
+    name: str
+    description: str = ""
+    created_at: str
+
+
+class CollectionRecord(BaseModel):
+    collection_id: str
+    workspace_id: str
+    name: str
+    description: str = ""
+    created_at: str
+
+
+class SavedScenarioRecord(BaseModel):
+    scenario_id: str
+    collection_id: str
+    name: str
+    config_path: str
+    input_text: str
+    created_at: str
+
+
+class BaselineRecord(BaseModel):
+    baseline_id: str
+    collection_id: str
+    run_id: str
+    label: str
+    created_at: str

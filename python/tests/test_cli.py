@@ -5,6 +5,7 @@ from typer.testing import CliRunner
 from openlvm.cli import app
 from openlvm.eval_store import EvalStore
 from openlvm.models import EvalRun
+from openlvm.operator_store import OperatorStore
 
 
 runner = CliRunner()
@@ -52,3 +53,16 @@ def test_bench_runs_with_simulated_runtime(monkeypatch):
     result = runner.invoke(app, ["bench", "--count", "5"])
     assert result.exit_code == 0
     assert "Forks: 5" in result.stdout
+
+
+def test_workspace_and_collection_commands(tmp_path, monkeypatch):
+    store = OperatorStore(tmp_path / "operator_store.db")
+    monkeypatch.setattr("openlvm.cli.OperatorStore", lambda: store)
+
+    workspace_result = runner.invoke(app, ["workspace-create", "Team A"])
+    assert workspace_result.exit_code == 0
+
+    workspace_id = store.list_workspaces()[0].workspace_id
+    collection_result = runner.invoke(app, ["collection-create", workspace_id, "Support"])
+    assert collection_result.exit_code == 0
+    assert store.list_collections(workspace_id)[0].name == "Support"

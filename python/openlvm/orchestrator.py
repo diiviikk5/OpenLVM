@@ -54,6 +54,7 @@ class TestOrchestrator:
         root_agent_id = registered_agents[0].agent_id
 
         self._apply_chaos(config, agent_lookup, chaos_mode)
+        active_chaos_targets = self._active_chaos_targets(config, agent_lookup, chaos_mode)
 
         scenario_defs = list(config.scenarios.items())
         fork_ids = self.runtime.fork_many(root_agent_id, scenarios)
@@ -64,14 +65,21 @@ class TestOrchestrator:
 
         for index, fork_id in enumerate(fork_ids):
             scenario_name, scenario = scenario_defs[index % len(scenario_defs)]
-            network_delay_ms = self.runtime.chaos_get_network_delay(root_agent_id)
-            warnings = self._collect_warnings(config, scenario_name, network_delay_ms, chaos_mode)
+            chaos_effects = self._collect_chaos_effects(active_chaos_targets)
+            network_delay_ms = max(
+                (effect.get("delay_ms", 0) for effect in chaos_effects.values()),
+                default=0,
+            )
+            warnings = self._collect_warnings(config, scenario_name, chaos_effects, chaos_mode)
             warnings_total += len(warnings)
             score = self._score_result(network_delay_ms, warnings)
             status = "passed" if score >= 0.75 else "warning"
             agent_output = self._build_agent_output(scenario.input, network_delay_ms, warnings)
             deepeval_metrics = self._run_deepeval_metrics(config, agent_output)
-            trace_records.append(self.openllmetry_adapter.instrument_fork(fork_id))
+            trace_record = self.openllmetry_adapter.instrument_fork(fork_id)
+            trace_record["chaos_effects"] = chaos_effects
+            trace_record["scenario_name"] = scenario_name
+            trace_records.append(trace_record)
             promptfoo_outputs.append(agent_output)
             results.append(
                 ScenarioRunResult(
@@ -82,6 +90,7 @@ class TestOrchestrator:
                     score=score,
                     network_delay_ms=network_delay_ms,
                     warnings=warnings,
+                    chaos_effects=chaos_effects,
                     metrics={
                         "task_completion": score,
                         "tool_correctness": max(score - 0.05, 0.0),
@@ -122,6 +131,7 @@ class TestOrchestrator:
                 "deepeval_available": self.deepeval_adapter.available,
                 "traces": trace_records,
                 "runtime_backend": getattr(self.runtime, "backend", "custom"),
+                "chaos_targets": list(active_chaos_targets.keys()),
             },
         )
         self.eval_store.store_run(run)
@@ -169,18 +179,60 @@ class TestOrchestrator:
                     entry.params.corruption_rate or 0.1,
                 )
 
+    def _active_chaos_targets(
+        self,
+        config: TestSuiteConfig,
+        agent_lookup: dict[str, int],
+        chaos_mode: Optional[str],
+    ) -> dict[str, dict]:
+        targets: dict[str, dict] = {}
+        for entry in config.chaos:
+            if chaos_mode not in (None, "all", entry.type):
+                continue
+            agent_id = agent_lookup.get(entry.target)
+            if agent_id is None:
+                continue
+            targets[entry.target] = {
+                "agent_id": agent_id,
+                "type": entry.type,
+                "probability": entry.params.probability or 0.3,
+                "params": entry.params.model_dump(),
+            }
+        return targets
+
+    def _collect_chaos_effects(self, active_chaos_targets: dict[str, dict]) -> dict[str, dict]:
+        effects: dict[str, dict] = {}
+        for target_name, target in active_chaos_targets.items():
+            effect: dict[str, object] = {
+                "agent_id": target["agent_id"],
+                "type": target["type"],
+                "probability": target["probability"],
+            }
+            if target["type"] == "network_delay":
+                delay_ms = self.runtime.chaos_get_network_delay(int(target["agent_id"]))
+                effect["delay_ms"] = delay_ms
+                effect["applied"] = delay_ms > 0
+            elif target["type"] == "hallucination":
+                effect["corruption_rate"] = target["params"].get("corruption_rate", 0.0)
+                effect["applied"] = True
+            else:
+                effect["applied"] = False
+            effects[target_name] = effect
+        return effects
+
     @staticmethod
     def _collect_warnings(
         config: TestSuiteConfig,
         scenario_name: str,
-        network_delay_ms: int,
+        chaos_effects: dict[str, dict],
         chaos_mode: Optional[str],
     ) -> list[str]:
         warnings: list[str] = []
-        if network_delay_ms > 0:
-            warnings.append(f"network delay injected: {network_delay_ms}ms")
-        if chaos_mode == "hallucination":
-            warnings.append("hallucination mode enabled; output integrity degraded")
+        for target_name, effect in chaos_effects.items():
+            if effect.get("type") == "network_delay" and effect.get("delay_ms", 0) > 0:
+                warnings.append(f"network delay injected on {target_name}: {effect['delay_ms']}ms")
+            if effect.get("type") == "hallucination" and effect.get("applied"):
+                warnings.append(f"hallucination mode enabled on {target_name}; output integrity degraded")
         if scenario_name not in config.scenarios:
             warnings.append("scenario mapping fallback applied")
         return warnings

@@ -50,3 +50,17 @@ def test_orchestrator_records_runtime_backend_with_simulation(tmp_path):
     run = orchestrator.run_test_suite(config_path, scenarios=2)
 
     assert run.metadata["runtime_backend"] == "simulated"
+
+
+def test_orchestrator_records_targeted_chaos_effects(tmp_path):
+    store = EvalStore(tmp_path / "eval_store.db")
+    orchestrator = TestOrchestrator(runtime=SimulatedOpenLVMRuntime(), eval_store=store)
+    config_path = Path(__file__).resolve().parents[2] / "examples" / "swarm.yaml"
+
+    run = orchestrator.run_test_suite(config_path, scenarios=1, chaos_mode="network_delay")
+
+    result = run.results[0]
+    assert "executor" in result.chaos_effects
+    assert result.chaos_effects["executor"]["type"] == "network_delay"
+    assert result.chaos_effects["executor"]["delay_ms"] >= 0
+    assert run.metadata["chaos_targets"] == ["executor"]

@@ -13,6 +13,7 @@ from rich.table import Table
 from .eval_store import EvalStore
 from .integrations import DeepEvalAdapter, OpenLLMetryAdapter, PromptfooAdapter
 from .mcp_server import serve as serve_mcp
+from .operator_store import OperatorStore
 from .orchestrator import TestOrchestrator
 from .runtime import OpenLVMError, OpenLVMRuntime, create_runtime
 
@@ -204,6 +205,13 @@ def show_run(
         table.add_row(result.name, str(result.fork_id), result.status, f"{result.score:.2f}")
     console.print(table)
 
+    if run.metadata.get("traces"):
+        trace_summary = EvalStore().get_trace_summary(run.run_id)
+        console.print(
+            f"Trace summary: traces={trace_summary['trace_count']} "
+            f"runtime={trace_summary['runtime_backend']} warnings={trace_summary['warning_events']}"
+        )
+
 
 @app.command("compare")
 def compare_runs(
@@ -219,6 +227,102 @@ def compare_runs(
         f"Failed delta: {diff.summary_delta.get('failed', 0)}  "
         f"Score delta: {diff.score_delta:+.2f}"
     )
+
+
+@app.command("workspace-create")
+def workspace_create(
+    name: str = typer.Argument(..., help="Workspace name"),
+    description: str = typer.Option("", "--description", "-d", help="Workspace description"),
+):
+    """Create a workspace for agent testing collections."""
+    workspace = OperatorStore().create_workspace(name, description)
+    console.print(f"[green]Workspace created:[/green] {workspace.workspace_id} {workspace.name}")
+
+
+@app.command("workspace-list")
+def workspace_list():
+    """List workspaces."""
+    rows = OperatorStore().list_workspaces()
+    table = Table(title="OpenLVM Workspaces")
+    table.add_column("Workspace ID", style="cyan")
+    table.add_column("Name", style="green")
+    table.add_column("Description")
+    for row in rows:
+        table.add_row(row.workspace_id, row.name, row.description)
+    console.print(table)
+
+
+@app.command("collection-create")
+def collection_create(
+    workspace_id: str = typer.Argument(..., help="Workspace id"),
+    name: str = typer.Argument(..., help="Collection name"),
+    description: str = typer.Option("", "--description", "-d", help="Collection description"),
+):
+    """Create a collection inside a workspace."""
+    collection = OperatorStore().create_collection(workspace_id, name, description)
+    console.print(f"[green]Collection created:[/green] {collection.collection_id} {collection.name}")
+
+
+@app.command("collection-list")
+def collection_list(workspace_id: str = typer.Option(None, "--workspace", help="Filter by workspace id")):
+    """List collections."""
+    rows = OperatorStore().list_collections(workspace_id)
+    table = Table(title="OpenLVM Collections")
+    table.add_column("Collection ID", style="cyan")
+    table.add_column("Workspace ID", style="yellow")
+    table.add_column("Name", style="green")
+    for row in rows:
+        table.add_row(row.collection_id, row.workspace_id, row.name)
+    console.print(table)
+
+
+@app.command("scenario-save")
+def scenario_save(
+    collection_id: str = typer.Argument(..., help="Collection id"),
+    name: str = typer.Argument(..., help="Scenario name"),
+    config_path: Path = typer.Argument(..., help="Config path"),
+    input_text: str = typer.Argument(..., help="Scenario input text"),
+):
+    """Save a scenario to a collection."""
+    scenario = OperatorStore().save_scenario(collection_id, name, str(config_path), input_text)
+    console.print(f"[green]Scenario saved:[/green] {scenario.scenario_id} {scenario.name}")
+
+
+@app.command("scenario-list")
+def scenario_list(collection_id: str = typer.Argument(..., help="Collection id")):
+    """List saved scenarios for a collection."""
+    rows = OperatorStore().list_saved_scenarios(collection_id)
+    table = Table(title="Saved Scenarios")
+    table.add_column("Scenario ID", style="cyan")
+    table.add_column("Name", style="green")
+    table.add_column("Config Path")
+    for row in rows:
+        table.add_row(row.scenario_id, row.name, row.config_path)
+    console.print(table)
+
+
+@app.command("baseline-save")
+def baseline_save(
+    collection_id: str = typer.Argument(..., help="Collection id"),
+    run_id: str = typer.Argument(..., help="Run id"),
+    label: str = typer.Argument(..., help="Baseline label"),
+):
+    """Save a run as a collection baseline."""
+    baseline = OperatorStore().create_baseline(collection_id, run_id, label)
+    console.print(f"[green]Baseline saved:[/green] {baseline.baseline_id} {baseline.label}")
+
+
+@app.command("baseline-list")
+def baseline_list(collection_id: str = typer.Argument(..., help="Collection id")):
+    """List baselines for a collection."""
+    rows = OperatorStore().list_baselines(collection_id)
+    table = Table(title="Baselines")
+    table.add_column("Baseline ID", style="cyan")
+    table.add_column("Run ID", style="yellow")
+    table.add_column("Label", style="green")
+    for row in rows:
+        table.add_row(row.baseline_id, row.run_id, row.label)
+    console.print(table)
 
 
 @app.command("mcp-serve")
