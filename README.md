@@ -62,10 +62,12 @@ Available API routes:
 - `GET /api/workbench/overview`
 - `POST /api/workbench/run`
 - `POST /api/workbench/compare`
-- `POST /api/workbench/workspace`
-- `POST /api/workbench/collection`
+- `POST/PATCH/DELETE /api/workbench/workspace`
+- `POST/PATCH/DELETE /api/workbench/collection`
 - `GET/POST/PATCH/DELETE /api/workbench/scenario`
 - `POST /api/workbench/baseline`
+
+`POST /api/workbench/compare` accepts optional `baseline_ids` to compare one candidate run against multiple saved baselines in a single call.
 
 Auth-ready API boundaries:
 - Every workbench route now attaches response headers:
