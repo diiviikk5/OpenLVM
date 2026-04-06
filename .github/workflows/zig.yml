@@ -29,3 +29,32 @@ jobs:
       - name: Run self-test
         working-directory: core
         run: ./zig-out/bin/openlvm-core selftest
+
+  test-python-zig:
+    runs-on: windows-latest
+    env:
+      OPENLVM_RUNTIME: zig
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.15.2
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build core
+        working-directory: core
+        run: zig build
+
+      - name: Install Python package
+        working-directory: python
+        run: python -m pip install -e ".[dev]"
+
+      - name: Run Zig-backed integration tests
+        run: python -m pytest python/tests/test_runtime.py python/tests/test_integration_zig.py -q
