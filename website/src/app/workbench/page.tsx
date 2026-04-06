@@ -120,6 +120,9 @@ export default function WorkbenchPage() {
   const [lastRunId, setLastRunId] = useState("");
   const [compare, setCompare] = useState<CompareResponse | null>(null);
   const [runInspection, setRunInspection] = useState<RunInspection | null>(null);
+  const [runFilterScenario, setRunFilterScenario] = useState("all");
+  const [runFilterStatus, setRunFilterStatus] = useState("all");
+  const [runFilterFork, setRunFilterFork] = useState("");
 
   const [workspaceName, setWorkspaceName] = useState("");
   const [collectionWorkspace, setCollectionWorkspace] = useState("");
@@ -216,6 +219,93 @@ export default function WorkbenchPage() {
     })();
   }, [selectedRun]);
 
+  const runInspectionScenarioOptions = useMemo(() => {
+    const options = new Set<string>();
+    for (const row of runInspection?.run.results || []) options.add(row.name);
+    return ["all", ...Array.from(options)];
+  }, [runInspection]);
+
+  const runInspectionRows = useMemo(() => {
+    const rows = runInspection?.run.results || [];
+    const forkFilter = runFilterFork.trim();
+    return rows.filter((row) => {
+      if (runFilterScenario !== "all" && row.name !== runFilterScenario) return false;
+      if (runFilterStatus !== "all" && row.status !== runFilterStatus) return false;
+      if (forkFilter && String(row.fork_id) !== forkFilter) return false;
+      return true;
+    });
+  }, [runInspection, runFilterScenario, runFilterStatus, runFilterFork]);
+
+  const downloadText = (filename: string, content: string, mimeType: string) => {
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const exportCompareJson = () => {
+    if (!compare) return;
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    downloadText(`openlvm-compare-${stamp}.json`, JSON.stringify(compare, null, 2), "application/json");
+  };
+
+  const exportCompareCsv = () => {
+    if (!compare) return;
+    const header = [
+      "baseline_id",
+      "baseline_label",
+      "baseline_run_id",
+      "candidate_run_id",
+      "scenario_name",
+      "baseline_status",
+      "candidate_status",
+      "baseline_score",
+      "candidate_score",
+      "warning_delta",
+      "trace_count_delta",
+      "warning_event_delta",
+      "baseline_backend",
+      "candidate_backend",
+      "chaos_targets_added",
+      "chaos_targets_removed",
+    ];
+    const escapeCsv = (value: unknown) => `"${String(value ?? "").replace(/"/g, "\"\"")}"`;
+    const lines = [header.map(escapeCsv).join(",")];
+    for (const diff of compare.diffs) {
+      for (const scenario of diff.scenario_diffs) {
+        lines.push(
+          [
+            diff.baseline_id || "",
+            diff.baseline_label || "",
+            diff.baseline_run_id,
+            diff.candidate_run_id,
+            scenario.name,
+            scenario.baseline_status,
+            scenario.candidate_status,
+            scenario.baseline_score,
+            scenario.candidate_score,
+            scenario.warning_delta,
+            diff.trace_delta?.trace_count_delta ?? "",
+            diff.trace_delta?.warning_event_delta ?? "",
+            diff.trace_delta?.baseline_runtime_backend ?? "",
+            diff.trace_delta?.candidate_runtime_backend ?? "",
+            (diff.trace_delta?.chaos_targets_added || []).join("|"),
+            (diff.trace_delta?.chaos_targets_removed || []).join("|"),
+          ]
+            .map(escapeCsv)
+            .join(",")
+        );
+      }
+    }
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    downloadText(`openlvm-compare-${stamp}.csv`, lines.join("\n"), "text/csv");
+  };
+
   return (
     <main className="min-h-screen bg-near-black text-ivory p-6">
       <h1 className="text-3xl mb-3">OpenLVM Workbench</h1>
@@ -311,8 +401,22 @@ export default function WorkbenchPage() {
           <p className="text-sm text-warm-silver">
             {runInspection.run.run_id} | backend {runInspection.trace_summary.runtime_backend} | traces {runInspection.trace_summary.trace_count} | warnings {runInspection.trace_summary.warning_events}
           </p>
+          <div className="mt-2 grid gap-2 md:grid-cols-4">
+            <select className="bg-dark-surface p-2 rounded text-sm" value={runFilterScenario} onChange={(e) => setRunFilterScenario(e.target.value)}>
+              {runInspectionScenarioOptions.map((name) => <option key={name} value={name}>{name}</option>)}
+            </select>
+            <select className="bg-dark-surface p-2 rounded text-sm" value={runFilterStatus} onChange={(e) => setRunFilterStatus(e.target.value)}>
+              <option value="all">all</option>
+              <option value="passed">passed</option>
+              <option value="warning">warning</option>
+              <option value="failed">failed</option>
+            </select>
+            <input className="bg-dark-surface p-2 rounded text-sm" placeholder="fork id" value={runFilterFork} onChange={(e) => setRunFilterFork(e.target.value)} />
+            <button className="border border-border-dark px-3 py-1 rounded text-sm" onClick={() => { setRunFilterScenario("all"); setRunFilterStatus("all"); setRunFilterFork(""); }}>Clear Filters</button>
+          </div>
+          <p className="mt-2 text-xs text-warm-silver">showing {runInspectionRows.length} of {runInspection.run.results.length} rows</p>
           <div className="mt-2 space-y-1 text-sm max-h-56 overflow-auto">
-            {runInspection.run.results.map((result) => (
+            {runInspectionRows.map((result) => (
               <div key={`${result.name}-${result.fork_id}`} className="border-b border-border-dark/50 pb-1">
                 <span>{result.name}</span>
                 <span className="text-warm-silver"> fork {result.fork_id}</span>
@@ -329,7 +433,13 @@ export default function WorkbenchPage() {
 
       {compare && (
         <section className="border border-border-dark rounded-xl p-4 mt-4">
-          <h2 className="text-xl mb-2">Multi-Baseline Compare</h2>
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <h2 className="text-xl">Multi-Baseline Compare</h2>
+            <div className="flex gap-2">
+              <button className="border border-border-dark px-3 py-1 rounded text-sm" onClick={exportCompareJson}>Export JSON</button>
+              <button className="border border-border-dark px-3 py-1 rounded text-sm" onClick={exportCompareCsv}>Export CSV</button>
+            </div>
+          </div>
           {compare.diffs.map((d) => (
             <div key={d.baseline_id || d.baseline_run_id} className="mb-4 border border-border-dark rounded p-3">
               <p className="text-sm text-warm-silver">{d.baseline_label || "baseline"} ({d.baseline_run_id}) {"->"} {d.candidate_run_id} | score {d.score_delta >= 0 ? "+" : ""}{d.score_delta.toFixed(2)}</p>
