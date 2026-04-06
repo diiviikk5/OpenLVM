@@ -55,6 +55,7 @@ Run tests:
 ## Repo Layout
 
 - `.github/workflows/`: CI for the Python layer in simulated mode
+- `.github/workflows/`: CI for the Python layer in simulated mode and Zig core validation
 - `core/`: Zig runtime and FFI exports
 - `python/`: Python package, CLI, orchestration, adapters, tests
 - `examples/`: starter suite configs
