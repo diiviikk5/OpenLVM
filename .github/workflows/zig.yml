@@ -58,3 +58,6 @@ jobs:
 
       - name: Run Zig-backed integration tests
         run: python -m pytest python/tests/test_runtime.py python/tests/test_integration_zig.py -q
+
+      - name: Run OpenLVM CLI against Zig core
+        run: python -m openlvm.cli test examples/swarm.yaml --scenarios 2 --chaos network_delay
