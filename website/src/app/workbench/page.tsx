@@ -47,6 +47,15 @@ type Diff = {
   scenario_diffs: ScenarioDiff[];
 };
 type CompareResponse = { candidate_run_id: string; diffs: Diff[] };
+type CompareArtifact = {
+  artifact_id: string;
+  collection_id: string;
+  candidate_run_id: string;
+  baseline_ids: string[];
+  filename: string;
+  created_at: string;
+  actor_id: string;
+};
 type RunInspection = {
   run: {
     run_id: string;
@@ -77,6 +86,7 @@ type Overview = {
   collections: Collection[];
   baselines_by_collection: Record<string, Baseline[]>;
   scenarios_by_collection: Record<string, Scenario[]>;
+  compare_artifacts_by_collection: Record<string, CompareArtifact[]>;
   recent_runs: Run[];
   audit_events: Array<{
     event_id: string;
@@ -121,6 +131,7 @@ export default function WorkbenchPage() {
   const [isComparing, setIsComparing] = useState(false);
   const [lastRunId, setLastRunId] = useState("");
   const [compare, setCompare] = useState<CompareResponse | null>(null);
+  const [isSavingArtifact, setIsSavingArtifact] = useState(false);
   const [runInspection, setRunInspection] = useState<RunInspection | null>(null);
   const [runFilterScenario, setRunFilterScenario] = useState("all");
   const [runFilterStatus, setRunFilterStatus] = useState("all");
@@ -200,6 +211,10 @@ export default function WorkbenchPage() {
   }, [baselines, baselineSearch, baselineSort]);
   const scenarios = useMemo(
     () => (overview && selectedCollection ? overview.scenarios_by_collection[selectedCollection] || [] : []),
+    [overview, selectedCollection]
+  );
+  const compareArtifacts = useMemo(
+    () => (overview && selectedCollection ? overview.compare_artifacts_by_collection[selectedCollection] || [] : []),
     [overview, selectedCollection]
   );
 
@@ -347,6 +362,35 @@ export default function WorkbenchPage() {
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");
     const candidate = compare.candidate_run_id.replace(/[^a-zA-Z0-9_-]/g, "_");
     downloadText(`openlvm-compare-${candidate}-${stamp}.csv`, lines.join("\n"), "text/csv");
+  };
+
+  const saveCompareArtifact = async () => {
+    if (!compare || !selectedCollection || !selectedRun) return;
+    setIsSavingArtifact(true);
+    try {
+      const result = await postJson<{ artifact_id: string; filename: string }>("/api/workbench/artifact", {
+        collection_id: selectedCollection,
+        run_id: selectedRun,
+        baseline_ids: selectedBaselines,
+      });
+      await load();
+      setMsg(`Artifact saved: ${result.filename}`);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setIsSavingArtifact(false);
+    }
+  };
+
+  const downloadSavedArtifact = async (artifactId: string, format: "json" | "csv") => {
+    try {
+      const res = await fetch(`/api/workbench/artifact?artifact_id=${encodeURIComponent(artifactId)}&format=${format}`, { cache: "no-store" });
+      const data = (await res.json()) as { filename: string; content: string; mime_type: string; error?: string };
+      if (!res.ok || data.error) throw new Error(data.error || "artifact download failed");
+      downloadText(data.filename, data.content, data.mime_type);
+    } catch (e) {
+      setError(String(e));
+    }
   };
 
   return (
@@ -502,6 +546,9 @@ export default function WorkbenchPage() {
           <div className="mb-2 flex items-center justify-between gap-2">
             <h2 className="text-xl">Multi-Baseline Compare</h2>
             <div className="flex gap-2">
+              <button className="border border-border-dark px-3 py-1 rounded text-sm" disabled={isSavingArtifact} onClick={() => void saveCompareArtifact()}>
+                {isSavingArtifact ? "Saving..." : "Save Artifact"}
+              </button>
               <button className="border border-border-dark px-3 py-1 rounded text-sm" onClick={exportCompareJson}>Export JSON</button>
               <button className="border border-border-dark px-3 py-1 rounded text-sm" onClick={exportCompareCsv}>Export CSV</button>
             </div>
@@ -534,6 +581,27 @@ export default function WorkbenchPage() {
           ))}
         </section>
       )}
+
+      <section className="border border-border-dark rounded-xl p-4 mt-4">
+        <h2 className="text-xl mb-2">Saved Compare Artifacts</h2>
+        <div className="space-y-2 text-sm max-h-56 overflow-auto">
+          {compareArtifacts.map((artifact) => (
+            <div key={artifact.artifact_id} className="flex items-center justify-between border border-border-dark rounded p-2">
+              <div>
+                <div>{artifact.filename}</div>
+                <div className="text-warm-silver">
+                  {artifact.candidate_run_id} | baselines {artifact.baseline_ids.length} | {new Date(artifact.created_at).toLocaleString()}
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <button className="border border-border-dark px-2 py-1 rounded" onClick={() => void downloadSavedArtifact(artifact.artifact_id, "json")}>JSON</button>
+                <button className="border border-border-dark px-2 py-1 rounded" onClick={() => void downloadSavedArtifact(artifact.artifact_id, "csv")}>CSV</button>
+              </div>
+            </div>
+          ))}
+          {compareArtifacts.length === 0 && <p className="text-warm-silver">No saved compare artifacts yet.</p>}
+        </div>
+      </section>
 
       <section className="border border-border-dark rounded-xl p-4 mt-4">
         <h2 className="text-xl mb-2">Audit Events</h2>

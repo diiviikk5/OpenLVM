@@ -68,6 +68,7 @@ Available API routes:
 - `POST/PATCH/DELETE /api/workbench/collection`
 - `GET/POST/PATCH/DELETE /api/workbench/scenario`
 - `POST /api/workbench/baseline`
+- `GET/POST /api/workbench/artifact`
 
 `POST /api/workbench/compare` accepts optional `baseline_ids` to compare one candidate run against multiple saved baselines in a single call.
 `GET /api/workbench/run` returns run inspection details plus trace summary for a given `run_id` (or `latest`).
