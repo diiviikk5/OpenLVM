@@ -37,7 +37,7 @@ pub const MappedRegion = struct {
             };
         } else {
             // Unix: use mmap with MAP_PRIVATE | MAP_ANONYMOUS for CoW
-            const result = posix.mmap(
+            const mapped = try posix.mmap(
                 null,
                 aligned_size,
                 posix.PROT.READ | posix.PROT.WRITE,
@@ -45,9 +45,8 @@ pub const MappedRegion = struct {
                 -1,
                 0,
             );
-            const ptr = result orelse return error.MmapFailed;
             return MappedRegion{
-                .base = @alignCast(@ptrCast(ptr.ptr)),
+                .base = @alignCast(@ptrCast(mapped.ptr)),
                 .len = aligned_size,
                 .used = 0,
             };
