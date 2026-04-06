@@ -1,112 +1,219 @@
+"use client";
+
 import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
 
-const collections = [
-  {
-    name: "Support Regression",
-    workspace: "Customer Ops",
-    scenarios: 12,
-    baselines: 3,
-    status: "stable",
-  },
-  {
-    name: "Tool Permission Audit",
-    workspace: "Core Runtime",
-    scenarios: 8,
-    baselines: 2,
-    status: "watch",
-  },
-  {
-    name: "MCP Contract Drift",
-    workspace: "Integrations",
-    scenarios: 5,
-    baselines: 4,
-    status: "new",
-  },
-];
+type Workspace = {
+  workspace_id: string;
+  name: string;
+  description: string;
+  created_at: string;
+};
 
-const recentRuns = [
-  {
-    id: "run-9ad31b2",
-    collection: "Support Regression",
-    backend: "zig",
-    passed: 10,
-    warnings: 2,
-    diff: "-0.04",
-  },
-  {
-    id: "run-91bc662",
-    collection: "Tool Permission Audit",
-    backend: "simulated",
-    passed: 7,
-    warnings: 1,
-    diff: "+0.01",
-  },
-  {
-    id: "run-6ab19ef",
-    collection: "MCP Contract Drift",
-    backend: "zig",
-    passed: 5,
-    warnings: 0,
-    diff: "+0.00",
-  },
-];
+type Collection = {
+  collection_id: string;
+  workspace_id: string;
+  name: string;
+  description: string;
+  created_at: string;
+};
 
-const diffRows = [
-  {
-    scenario: "cancel-flow",
-    status: "passed -> warning",
-    score: "0.95 -> 0.72",
-    trace: "1 -> 2",
-  },
-  {
-    scenario: "refund-flow",
-    status: "passed -> passed",
-    score: "0.91 -> 0.89",
-    trace: "1 -> 1",
-  },
-  {
-    scenario: "escalation-flow",
-    status: "warning -> passed",
-    score: "0.74 -> 0.88",
-    trace: "2 -> 1",
-  },
-];
+type Baseline = {
+  baseline_id: string;
+  collection_id: string;
+  run_id: string;
+  label: string;
+  created_at: string;
+};
 
-const commands = [
-  "openlvm workspace-create 'Customer Ops'",
-  "openlvm collection-create ws-123 'Support Regression'",
-  "openlvm scenario-save col-123 cancel-flow examples/swarm.yaml 'Cancel my plan'",
-  "openlvm collection-run col-123 --chaos network_delay",
-  "openlvm baseline-compare col-123 latest",
-];
+type ScenarioDiff = {
+  name: string;
+  baseline_status: string;
+  candidate_status: string;
+  baseline_score: number;
+  candidate_score: number;
+  score_delta: number;
+  baseline_delay_ms: number;
+  candidate_delay_ms: number;
+  warning_delta: number;
+};
 
-function statusClasses(status: string): string {
-  if (status === "stable") {
-    return "bg-accent-emerald/15 text-accent-emerald border-accent-emerald/30";
+type RunDiff = {
+  baseline_run_id: string;
+  candidate_run_id: string;
+  summary_delta: Record<string, number>;
+  score_delta: number;
+  baseline_average_score: number;
+  candidate_average_score: number;
+  scenario_diffs: ScenarioDiff[];
+  trace_delta: Record<string, string | number | boolean | string[]>;
+};
+
+type EvalRun = {
+  run_id: string;
+  suite_name: string;
+  suite_version: string;
+  started_at: string;
+  scenarios_executed: number;
+  summary: Record<string, number>;
+  metadata: Record<string, unknown>;
+};
+
+type OverviewResponse = {
+  workspaces: Workspace[];
+  collections: Collection[];
+  baselines_by_collection: Record<string, Baseline[]>;
+  recent_runs: EvalRun[];
+};
+
+async function loadOverview(): Promise<OverviewResponse> {
+  const res = await fetch("/api/workbench/overview", { cache: "no-store" });
+  const data = (await res.json()) as OverviewResponse | { error: string };
+  if (!res.ok || "error" in data) {
+    throw new Error("error" in data ? data.error : "Failed to load workbench overview");
   }
-  if (status === "watch") {
-    return "bg-accent-amber/15 text-accent-amber border-accent-amber/30";
+  return data;
+}
+
+function formatTimestamp(value: string): string {
+  try {
+    return new Date(value).toLocaleString();
+  } catch {
+    return value;
   }
-  return "bg-terracotta/15 text-terracotta border-terracotta/30";
 }
 
 export default function WorkbenchPage() {
+  const [overview, setOverview] = useState<OverviewResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [selectedCollectionId, setSelectedCollectionId] = useState<string>("");
+  const [selectedRunId, setSelectedRunId] = useState<string>("");
+  const [isRunning, setIsRunning] = useState(false);
+  const [isComparing, setIsComparing] = useState(false);
+  const [lastRunId, setLastRunId] = useState<string>("");
+  const [compareResult, setCompareResult] = useState<RunDiff | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const data = await loadOverview();
+        setOverview(data);
+        if (data.collections.length > 0) {
+          setSelectedCollectionId(data.collections[0].collection_id);
+        }
+        if (data.recent_runs.length > 0) {
+          setSelectedRunId(data.recent_runs[0].run_id);
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to load overview");
+      } finally {
+        setIsLoading(false);
+      }
+    })();
+  }, []);
+
+  const workspaceNameById = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const workspace of overview?.workspaces ?? []) {
+      map[workspace.workspace_id] = workspace.name;
+    }
+    return map;
+  }, [overview]);
+
+  const selectedCollectionBaselines = useMemo(() => {
+    if (!overview || !selectedCollectionId) {
+      return [];
+    }
+    return overview.baselines_by_collection[selectedCollectionId] ?? [];
+  }, [overview, selectedCollectionId]);
+
+  const refreshOverview = async () => {
+    const data = await loadOverview();
+    setOverview(data);
+  };
+
+  const runCollection = async () => {
+    if (!selectedCollectionId) {
+      return;
+    }
+    setIsRunning(true);
+    setActionError(null);
+    try {
+      const res = await fetch("/api/workbench/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ collection_id: selectedCollectionId }),
+      });
+      const data = (await res.json()) as EvalRun | { error: string };
+      if (!res.ok || "error" in data) {
+        throw new Error("error" in data ? data.error : "Collection run failed");
+      }
+      setLastRunId(data.run_id);
+      setSelectedRunId(data.run_id);
+      await refreshOverview();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Collection run failed");
+    } finally {
+      setIsRunning(false);
+    }
+  };
+
+  const compareBaseline = async () => {
+    if (!selectedCollectionId || !selectedRunId) {
+      return;
+    }
+    setIsComparing(true);
+    setActionError(null);
+    try {
+      const res = await fetch("/api/workbench/compare", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          collection_id: selectedCollectionId,
+          run_id: selectedRunId,
+        }),
+      });
+      const data = (await res.json()) as RunDiff | { error: string };
+      if (!res.ok || "error" in data) {
+        throw new Error("error" in data ? data.error : "Baseline compare failed");
+      }
+      setCompareResult(data);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Baseline compare failed");
+    } finally {
+      setIsComparing(false);
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <main className="min-h-screen bg-near-black p-10 text-ivory">
+        <p className="text-lg text-warm-silver">Loading OpenLVM workbench...</p>
+      </main>
+    );
+  }
+
+  if (error) {
+    return (
+      <main className="min-h-screen bg-near-black p-10 text-ivory">
+        <h1 className="text-3xl font-semibold">Workbench unavailable</h1>
+        <p className="mt-4 text-coral">{error}</p>
+      </main>
+    );
+  }
+
   return (
     <main className="min-h-screen bg-[radial-gradient(circle_at_top,rgba(201,100,66,0.18),transparent_34%),linear-gradient(180deg,#141413_0%,#1b1a19_100%)] text-ivory">
       <div className="mx-auto max-w-[1280px] px-6 py-10 lg:px-10 lg:py-14">
         <div className="glass-dark-elevated mb-8 rounded-[28px] border border-border-dark p-6 lg:p-8">
-          <div className="mb-8 flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+          <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div className="max-w-3xl">
-              <p className="mb-3 text-sm uppercase tracking-[0.28em] text-warm-silver">
-                OpenLVM Workbench
-              </p>
+              <p className="mb-3 text-sm uppercase tracking-[0.28em] text-warm-silver">OpenLVM Workbench</p>
               <h1 className="font-[family-name:var(--font-serif)] text-4xl leading-tight text-ivory lg:text-6xl">
-                Postman-style control room for agent testing.
+                Live collection runs, baselines, and trace-aware diffs.
               </h1>
-              <p className="mt-4 max-w-2xl text-base leading-7 text-warm-silver lg:text-lg">
-                Save collections, rerun agent sessions, diff traces against baselines, and inspect
-                what changed before a prompt or runtime update reaches production.
-              </p>
             </div>
             <div className="flex flex-wrap gap-3">
               <Link
@@ -116,193 +223,189 @@ export default function WorkbenchPage() {
               >
                 View Repository
               </Link>
-              <Link
-                href="/#quickstart"
+              <button
+                type="button"
+                onClick={() => void refreshOverview()}
                 className="rounded-2xl bg-terracotta px-4 py-3 text-sm font-medium text-ivory transition hover:bg-coral"
               >
-                Start With CLI
-              </Link>
+                Refresh
+              </button>
             </div>
           </div>
 
-          <div className="grid gap-5 lg:grid-cols-[1.15fr_0.85fr]">
-            <section className="rounded-[24px] border border-border-dark bg-deep-dark/70 p-5 terminal-shadow">
-              <div className="mb-4 flex items-center justify-between">
-                <div>
-                  <p className="text-xs uppercase tracking-[0.22em] text-stone-gray">Command Flow</p>
-                  <h2 className="mt-2 text-xl font-semibold text-ivory">Collections to baselines</h2>
-                </div>
-                <span className="rounded-full border border-terracotta/30 bg-terracotta/10 px-3 py-1 text-xs font-medium text-coral">
-                  CLI + MCP
-                </span>
-              </div>
-              <div className="space-y-3 font-[family-name:var(--font-jetbrains)] text-sm text-warm-silver">
-                {commands.map((command) => (
-                  <div
-                    key={command}
-                    className="rounded-2xl border border-border-dark bg-near-black/80 px-4 py-3"
-                  >
-                    <span className="mr-3 text-coral">$</span>
-                    {command}
-                  </div>
-                ))}
-              </div>
-            </section>
-
-            <section className="rounded-[24px] border border-border-dark bg-[linear-gradient(180deg,rgba(48,48,46,0.68),rgba(20,20,19,0.92))] p-5">
-              <p className="text-xs uppercase tracking-[0.22em] text-stone-gray">Why This Layer</p>
-              <div className="mt-4 grid gap-4">
-                <div className="rounded-2xl border border-border-dark bg-near-black/70 p-4">
-                  <p className="text-sm text-stone-gray">Trace delta</p>
-                  <p className="mt-2 text-3xl font-semibold text-ivory">+1 warning event</p>
-                  <p className="mt-2 text-sm text-warm-silver">
-                    Candidate run introduced an extra delayed tool path on the executor agent.
-                  </p>
-                </div>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="rounded-2xl border border-border-dark bg-near-black/70 p-4">
-                    <p className="text-sm text-stone-gray">Runtime backends</p>
-                    <p className="mt-2 text-lg font-semibold text-ivory">simulated -&gt; zig</p>
-                  </div>
-                  <div className="rounded-2xl border border-border-dark bg-near-black/70 p-4">
-                    <p className="text-sm text-stone-gray">Chaos targets</p>
-                    <p className="mt-2 text-lg font-semibold text-ivory">executor added</p>
-                  </div>
-                </div>
-              </div>
-            </section>
+          <div className="grid gap-4 lg:grid-cols-3">
+            <div className="rounded-2xl border border-border-dark bg-near-black/60 p-4">
+              <p className="text-sm text-stone-gray">Workspaces</p>
+              <p className="mt-2 text-3xl font-semibold text-ivory">{overview?.workspaces.length ?? 0}</p>
+            </div>
+            <div className="rounded-2xl border border-border-dark bg-near-black/60 p-4">
+              <p className="text-sm text-stone-gray">Collections</p>
+              <p className="mt-2 text-3xl font-semibold text-ivory">{overview?.collections.length ?? 0}</p>
+            </div>
+            <div className="rounded-2xl border border-border-dark bg-near-black/60 p-4">
+              <p className="text-sm text-stone-gray">Recent Runs</p>
+              <p className="mt-2 text-3xl font-semibold text-ivory">{overview?.recent_runs.length ?? 0}</p>
+            </div>
           </div>
         </div>
 
-        <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
+        <div className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
           <section className="glass-dark rounded-[28px] border border-border-dark p-6">
-            <div className="mb-5 flex items-center justify-between">
-              <div>
-                <p className="text-xs uppercase tracking-[0.22em] text-stone-gray">Collections</p>
-                <h2 className="mt-2 text-2xl font-semibold text-ivory">Saved workspaces and suites</h2>
-              </div>
-              <span className="rounded-full border border-border-dark px-3 py-1 text-xs text-warm-silver">
-                local-first
-              </span>
-            </div>
-            <div className="space-y-4">
-              {collections.map((collection) => (
-                <div
-                  key={collection.name}
-                  className="rounded-[24px] border border-border-dark bg-dark-surface/35 p-5"
+            <h2 className="text-2xl font-semibold">Collections</h2>
+            <p className="mt-2 text-sm text-warm-silver">Select a collection and execute from the workbench.</p>
+            <div className="mt-4 space-y-3">
+              {(overview?.collections ?? []).map((collection) => (
+                <button
+                  key={collection.collection_id}
+                  type="button"
+                  onClick={() => setSelectedCollectionId(collection.collection_id)}
+                  className={`w-full rounded-2xl border p-4 text-left transition ${
+                    selectedCollectionId === collection.collection_id
+                      ? "border-terracotta bg-terracotta/10"
+                      : "border-border-dark bg-near-black/50 hover:border-olive-gray"
+                  }`}
                 >
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <h3 className="text-lg font-semibold text-ivory">{collection.name}</h3>
-                      <p className="mt-1 text-sm text-warm-silver">{collection.workspace}</p>
-                    </div>
-                    <span
-                      className={`rounded-full border px-3 py-1 text-xs font-medium uppercase tracking-[0.18em] ${statusClasses(collection.status)}`}
-                    >
-                      {collection.status}
-                    </span>
-                  </div>
-                  <div className="mt-4 grid grid-cols-2 gap-3 text-sm text-warm-silver">
-                    <div className="rounded-2xl bg-near-black/60 px-4 py-3">
-                      <p className="text-stone-gray">Scenarios</p>
-                      <p className="mt-2 text-xl font-semibold text-ivory">{collection.scenarios}</p>
-                    </div>
-                    <div className="rounded-2xl bg-near-black/60 px-4 py-3">
-                      <p className="text-stone-gray">Baselines</p>
-                      <p className="mt-2 text-xl font-semibold text-ivory">{collection.baselines}</p>
-                    </div>
-                  </div>
-                </div>
+                  <p className="text-lg font-semibold text-ivory">{collection.name}</p>
+                  <p className="text-sm text-warm-silver">
+                    {workspaceNameById[collection.workspace_id] ?? collection.workspace_id}
+                  </p>
+                </button>
               ))}
             </div>
           </section>
 
-          <section className="grid gap-6">
-            <div className="glass-dark rounded-[28px] border border-border-dark p-6">
-              <div className="mb-5 flex items-center justify-between">
-                <div>
-                  <p className="text-xs uppercase tracking-[0.22em] text-stone-gray">Recent Runs</p>
-                  <h2 className="mt-2 text-2xl font-semibold text-ivory">Inspect the latest branch of behavior</h2>
-                </div>
-                <span className="rounded-full bg-terracotta/10 px-3 py-1 text-xs font-medium text-coral">
-                  replay-ready
-                </span>
+          <section className="glass-dark rounded-[28px] border border-border-dark p-6">
+            <h2 className="text-2xl font-semibold">Run + Compare</h2>
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
+              <div>
+                <label className="mb-2 block text-sm text-stone-gray">Collection</label>
+                <select
+                  className="w-full rounded-xl border border-border-dark bg-near-black px-3 py-2 text-ivory"
+                  value={selectedCollectionId}
+                  onChange={(event) => setSelectedCollectionId(event.target.value)}
+                >
+                  {(overview?.collections ?? []).map((collection) => (
+                    <option key={collection.collection_id} value={collection.collection_id}>
+                      {collection.name}
+                    </option>
+                  ))}
+                </select>
               </div>
-              <div className="overflow-hidden rounded-[24px] border border-border-dark">
-                <table className="w-full border-collapse text-left text-sm">
-                  <thead className="bg-dark-surface/70 text-stone-gray">
-                    <tr>
-                      <th className="px-4 py-3 font-medium">Run</th>
-                      <th className="px-4 py-3 font-medium">Collection</th>
-                      <th className="px-4 py-3 font-medium">Backend</th>
-                      <th className="px-4 py-3 font-medium">Pass/Warn</th>
-                      <th className="px-4 py-3 font-medium">Score Δ</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {recentRuns.map((run) => (
-                      <tr key={run.id} className="border-t border-border-dark bg-near-black/55 text-warm-silver">
-                        <td className="px-4 py-3 font-[family-name:var(--font-jetbrains)] text-ivory">
-                          {run.id}
-                        </td>
-                        <td className="px-4 py-3">{run.collection}</td>
-                        <td className="px-4 py-3 uppercase">{run.backend}</td>
-                        <td className="px-4 py-3">
-                          {run.passed} / {run.warnings}
-                        </td>
-                        <td
-                          className={`px-4 py-3 font-medium ${
-                            run.diff.startsWith("-") ? "text-coral" : "text-accent-emerald"
-                          }`}
-                        >
-                          {run.diff}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div>
+                <label className="mb-2 block text-sm text-stone-gray">Run ID for compare</label>
+                <select
+                  className="w-full rounded-xl border border-border-dark bg-near-black px-3 py-2 text-ivory"
+                  value={selectedRunId}
+                  onChange={(event) => setSelectedRunId(event.target.value)}
+                >
+                  {(overview?.recent_runs ?? []).map((run) => (
+                    <option key={run.run_id} value={run.run_id}>
+                      {run.run_id}
+                    </option>
+                  ))}
+                </select>
               </div>
             </div>
 
-            <div className="glass-dark rounded-[28px] border border-border-dark p-6">
-              <p className="text-xs uppercase tracking-[0.22em] text-stone-gray">Baseline Diff</p>
-              <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-                <div>
-                  <h2 className="text-2xl font-semibold text-ivory">Scenario and trace comparison</h2>
-                  <p className="mt-2 max-w-2xl text-sm leading-6 text-warm-silver">
-                    Baselines should show more than a score. The workbench calls out which scenario changed,
-                    whether the path slowed down, and whether the runtime or chaos surface shifted underneath it.
-                  </p>
-                </div>
-                <div className="rounded-2xl border border-accent-amber/30 bg-accent-amber/10 px-4 py-3 text-sm text-accent-amber">
-                  candidate drift detected
-                </div>
-              </div>
-              <div className="mt-5 overflow-hidden rounded-[24px] border border-border-dark">
-                <table className="w-full border-collapse text-left text-sm">
-                  <thead className="bg-dark-surface/70 text-stone-gray">
-                    <tr>
-                      <th className="px-4 py-3 font-medium">Scenario</th>
-                      <th className="px-4 py-3 font-medium">Status</th>
-                      <th className="px-4 py-3 font-medium">Score</th>
-                      <th className="px-4 py-3 font-medium">Traces</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {diffRows.map((row) => (
-                      <tr key={row.scenario} className="border-t border-border-dark bg-near-black/55 text-warm-silver">
-                        <td className="px-4 py-3 text-ivory">{row.scenario}</td>
-                        <td className="px-4 py-3">{row.status}</td>
-                        <td className="px-4 py-3">{row.score}</td>
-                        <td className="px-4 py-3">{row.trace}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+            <div className="mt-4 flex flex-wrap gap-3">
+              <button
+                type="button"
+                onClick={() => void runCollection()}
+                disabled={isRunning || !selectedCollectionId}
+                className="rounded-xl bg-terracotta px-4 py-2 text-sm font-semibold text-ivory transition hover:bg-coral disabled:opacity-50"
+              >
+                {isRunning ? "Running..." : "Run Collection"}
+              </button>
+              <button
+                type="button"
+                onClick={() => void compareBaseline()}
+                disabled={isComparing || !selectedCollectionId || !selectedRunId}
+                className="rounded-xl border border-border-dark bg-near-black px-4 py-2 text-sm font-semibold text-ivory transition hover:border-olive-gray disabled:opacity-50"
+              >
+                {isComparing ? "Comparing..." : "Compare To Baseline"}
+              </button>
             </div>
+
+            {selectedCollectionBaselines.length > 0 && (
+              <p className="mt-3 text-sm text-warm-silver">
+                Baseline: {selectedCollectionBaselines[0].label} ({selectedCollectionBaselines[0].run_id})
+              </p>
+            )}
+            {lastRunId && <p className="mt-2 text-sm text-accent-emerald">Latest run created: {lastRunId}</p>}
+            {actionError && <p className="mt-2 text-sm text-coral">{actionError}</p>}
           </section>
         </div>
+
+        <section className="glass-dark mt-6 rounded-[28px] border border-border-dark p-6">
+          <h2 className="text-2xl font-semibold">Recent Runs</h2>
+          <div className="mt-4 overflow-hidden rounded-2xl border border-border-dark">
+            <table className="w-full border-collapse text-left text-sm">
+              <thead className="bg-dark-surface/70 text-stone-gray">
+                <tr>
+                  <th className="px-4 py-3 font-medium">Run ID</th>
+                  <th className="px-4 py-3 font-medium">Suite</th>
+                  <th className="px-4 py-3 font-medium">Scenarios</th>
+                  <th className="px-4 py-3 font-medium">Passed</th>
+                  <th className="px-4 py-3 font-medium">Warnings</th>
+                  <th className="px-4 py-3 font-medium">Started</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(overview?.recent_runs ?? []).map((run) => (
+                  <tr key={run.run_id} className="border-t border-border-dark bg-near-black/50 text-warm-silver">
+                    <td className="px-4 py-3 font-[family-name:var(--font-jetbrains)] text-ivory">{run.run_id}</td>
+                    <td className="px-4 py-3">{run.suite_name}</td>
+                    <td className="px-4 py-3">{run.scenarios_executed}</td>
+                    <td className="px-4 py-3">{run.summary.passed ?? 0}</td>
+                    <td className="px-4 py-3">{run.summary.warnings ?? 0}</td>
+                    <td className="px-4 py-3">{formatTimestamp(run.started_at)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        {compareResult && (
+          <section className="glass-dark mt-6 rounded-[28px] border border-border-dark p-6">
+            <h2 className="text-2xl font-semibold">Baseline Diff</h2>
+            <p className="mt-2 text-sm text-warm-silver">
+              {compareResult.baseline_run_id} {"->"} {compareResult.candidate_run_id} | score delta{" "}
+              {compareResult.score_delta >= 0 ? "+" : ""}
+              {compareResult.score_delta.toFixed(2)}
+            </p>
+            <div className="mt-4 overflow-hidden rounded-2xl border border-border-dark">
+              <table className="w-full border-collapse text-left text-sm">
+                <thead className="bg-dark-surface/70 text-stone-gray">
+                  <tr>
+                    <th className="px-4 py-3 font-medium">Scenario</th>
+                    <th className="px-4 py-3 font-medium">Status</th>
+                    <th className="px-4 py-3 font-medium">Score</th>
+                    <th className="px-4 py-3 font-medium">Delay</th>
+                    <th className="px-4 py-3 font-medium">Warn Δ</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {compareResult.scenario_diffs.map((diff) => (
+                    <tr key={diff.name} className="border-t border-border-dark bg-near-black/50 text-warm-silver">
+                      <td className="px-4 py-3 text-ivory">{diff.name}</td>
+                      <td className="px-4 py-3">
+                        {diff.baseline_status} {"->"} {diff.candidate_status}
+                      </td>
+                      <td className="px-4 py-3">
+                        {diff.baseline_score.toFixed(2)} {"->"} {diff.candidate_score.toFixed(2)}
+                      </td>
+                      <td className="px-4 py-3">
+                        {diff.baseline_delay_ms}ms {"->"} {diff.candidate_delay_ms}ms
+                      </td>
+                      <td className="px-4 py-3">{diff.warning_delta >= 0 ? "+" : ""}{diff.warning_delta}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
       </div>
     </main>
   );
