@@ -10,6 +10,7 @@ const navLinks = [
   { label: "Features", href: "#features" },
   { label: "How It Works", href: "#how-it-works" },
   { label: "Architecture", href: "#architecture" },
+  { label: "Workbench", href: "/workbench" },
   { label: "CLI", href: "#cli" },
   { label: "Comparison", href: "#comparison" },
 ];
@@ -62,7 +63,7 @@ export default function Navbar() {
         {/* Desktop CTA */}
         <div className="hidden md:flex items-center gap-3">
           <Link
-            href="https://github.com"
+            href="https://github.com/diiviikk5/OpenLVM"
             target="_blank"
             className="flex items-center gap-2 px-3.5 py-2 text-[14px] font-medium text-warm-silver hover:text-ivory rounded-xl border border-border-dark hover:border-olive-gray transition-all duration-200 hover:shadow-[0_0_0_1px_rgba(48,48,46,0.8)]"
           >
