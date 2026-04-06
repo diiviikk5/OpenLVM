@@ -74,6 +74,57 @@ def _compare_baseline(args: list[str]) -> dict:
     return diff.model_dump()
 
 
+def _resolve_config_path(config_path: str) -> str:
+    path = Path(config_path)
+    if path.is_absolute():
+        return str(path)
+    return str((_repo_root() / path).resolve())
+
+
+def _create_workspace(args: list[str]) -> dict:
+    if not args:
+        raise ValueError("workspace name is required")
+    from openlvm.operator_store import OperatorStore
+
+    name = args[0]
+    description = args[1] if len(args) > 1 else ""
+    return OperatorStore().create_workspace(name, description).model_dump()
+
+
+def _create_collection(args: list[str]) -> dict:
+    if len(args) < 2:
+        raise ValueError("workspace_id and collection name are required")
+    from openlvm.operator_store import OperatorStore
+
+    workspace_id = args[0]
+    name = args[1]
+    description = args[2] if len(args) > 2 else ""
+    return OperatorStore().create_collection(workspace_id, name, description).model_dump()
+
+
+def _save_scenario(args: list[str]) -> dict:
+    if len(args) < 4:
+        raise ValueError("collection_id, name, config_path, input_text are required")
+    from openlvm.operator_store import OperatorStore
+
+    collection_id = args[0]
+    name = args[1]
+    config_path = _resolve_config_path(args[2])
+    input_text = args[3]
+    return OperatorStore().save_scenario(collection_id, name, config_path, input_text).model_dump()
+
+
+def _save_baseline(args: list[str]) -> dict:
+    if len(args) < 3:
+        raise ValueError("collection_id, run_id, label are required")
+    from openlvm.operator_store import OperatorStore
+
+    collection_id = args[0]
+    run_id = args[1]
+    label = args[2]
+    return OperatorStore().create_baseline(collection_id, run_id, label).model_dump()
+
+
 def _main() -> int:
     _bootstrap()
     if len(sys.argv) < 2:
@@ -90,6 +141,14 @@ def _main() -> int:
             result = _run_collection(args)
         elif command == "compare_baseline":
             result = _compare_baseline(args)
+        elif command == "create_workspace":
+            result = _create_workspace(args)
+        elif command == "create_collection":
+            result = _create_collection(args)
+        elif command == "save_scenario":
+            result = _save_scenario(args)
+        elif command == "save_baseline":
+            result = _save_baseline(args)
         else:
             raise ValueError(f"unknown command: {command}")
         print(json.dumps(result))
