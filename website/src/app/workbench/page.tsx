@@ -33,6 +33,17 @@ type Diff = {
   baseline_run_id: string;
   candidate_run_id: string;
   score_delta: number;
+  trace_delta?: {
+    baseline_trace_count: number;
+    candidate_trace_count: number;
+    trace_count_delta: number;
+    warning_event_delta: number;
+    runtime_backend_changed: boolean;
+    baseline_runtime_backend: string;
+    candidate_runtime_backend: string;
+    chaos_targets_added: string[];
+    chaos_targets_removed: string[];
+  };
   scenario_diffs: ScenarioDiff[];
 };
 type CompareResponse = { candidate_run_id: string; diffs: Diff[] };
@@ -322,6 +333,19 @@ export default function WorkbenchPage() {
           {compare.diffs.map((d) => (
             <div key={d.baseline_id || d.baseline_run_id} className="mb-4 border border-border-dark rounded p-3">
               <p className="text-sm text-warm-silver">{d.baseline_label || "baseline"} ({d.baseline_run_id}) {"->"} {d.candidate_run_id} | score {d.score_delta >= 0 ? "+" : ""}{d.score_delta.toFixed(2)}</p>
+              {d.trace_delta && (
+                <p className="text-xs text-warm-silver mt-1">
+                  traces {d.trace_delta.baseline_trace_count} {"->"} {d.trace_delta.candidate_trace_count}
+                  {" "}({d.trace_delta.trace_count_delta >= 0 ? "+" : ""}{d.trace_delta.trace_count_delta})
+                  {" "}warn delta {d.trace_delta.warning_event_delta >= 0 ? "+" : ""}{d.trace_delta.warning_event_delta}
+                  {" "}backend {d.trace_delta.baseline_runtime_backend} {"->"} {d.trace_delta.candidate_runtime_backend}
+                </p>
+              )}
+              {d.trace_delta && (d.trace_delta.chaos_targets_added.length > 0 || d.trace_delta.chaos_targets_removed.length > 0) && (
+                <p className="text-xs text-warm-silver mt-1">
+                  chaos +[{d.trace_delta.chaos_targets_added.join(", ") || "-"}] -[{d.trace_delta.chaos_targets_removed.join(", ") || "-"}]
+                </p>
+              )}
               <div className="mt-2 space-y-1 text-sm">
                 {d.scenario_diffs.map((s) => (
                   <div key={`${d.baseline_run_id}-${s.name}`} className="flex justify-between border-b border-border-dark/50 pb-1">
