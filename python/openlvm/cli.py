@@ -229,6 +229,20 @@ def compare_runs(
     )
 
 
+@app.command("trace-summary")
+def trace_summary(run_id: str = typer.Argument("latest", help="Run id to inspect")):
+    """Show trace summary for a run."""
+    summary = EvalStore().get_trace_summary(run_id)
+    console.print(
+        f"[bold cyan]Trace Summary[/bold cyan] {summary['run_id']}\n"
+        f"Suite: {summary['suite_name']}\n"
+        f"Runtime: {summary['runtime_backend']}\n"
+        f"Traces: {summary['trace_count']}\n"
+        f"Scenarios: {summary['scenario_count']}\n"
+        f"Warning events: {summary['warning_events']}"
+    )
+
+
 @app.command("workspace-create")
 def workspace_create(
     name: str = typer.Argument(..., help="Workspace name"),
@@ -274,6 +288,36 @@ def collection_list(workspace_id: str = typer.Option(None, "--workspace", help="
     for row in rows:
         table.add_row(row.collection_id, row.workspace_id, row.name)
     console.print(table)
+
+
+@app.command("collection-inspect")
+def collection_inspect(collection_id: str = typer.Argument(..., help="Collection id")):
+    """Inspect one collection with saved scenarios and baselines."""
+    summary = OperatorStore().get_collection_summary(collection_id)
+    collection = summary["collection"]
+    console.print(
+        f"[bold cyan]{collection['collection_id']}[/bold cyan]  {collection['name']}\n"
+        f"Workspace: {collection['workspace_id']}\n"
+        f"Scenarios: {summary['scenario_count']}  Baselines: {summary['baseline_count']}"
+    )
+
+    if summary["scenarios"]:
+        scenario_table = Table(title="Collection Scenarios")
+        scenario_table.add_column("Scenario ID", style="cyan")
+        scenario_table.add_column("Name", style="green")
+        scenario_table.add_column("Input")
+        for row in summary["scenarios"]:
+            scenario_table.add_row(row["scenario_id"], row["name"], row["input_text"])
+        console.print(scenario_table)
+
+    if summary["baselines"]:
+        baseline_table = Table(title="Collection Baselines")
+        baseline_table.add_column("Baseline ID", style="cyan")
+        baseline_table.add_column("Run ID", style="yellow")
+        baseline_table.add_column("Label", style="green")
+        for row in summary["baselines"]:
+            baseline_table.add_row(row["baseline_id"], row["run_id"], row["label"])
+        console.print(baseline_table)
 
 
 @app.command("scenario-save")
@@ -323,6 +367,30 @@ def baseline_list(collection_id: str = typer.Argument(..., help="Collection id")
     for row in rows:
         table.add_row(row.baseline_id, row.run_id, row.label)
     console.print(table)
+
+
+@app.command("baseline-compare")
+def baseline_compare(
+    collection_id: str = typer.Argument(..., help="Collection id"),
+    run_id: str = typer.Argument(..., help="Candidate run id"),
+):
+    """Compare the latest baseline in a collection to a run."""
+    baselines = OperatorStore().list_baselines(collection_id)
+    if not baselines:
+        console.print("[bold red]No baselines found for collection.[/bold red]")
+        raise typer.Exit(code=1)
+
+    baseline = baselines[0]
+    diff = EvalStore().compare_runs(baseline.run_id, run_id)
+    console.print(
+        f"[bold cyan]Baseline Compare[/bold cyan] {baseline.label}\n"
+        f"Baseline run: {baseline.run_id}\n"
+        f"Candidate run: {run_id}\n"
+        f"Passed delta: {diff.summary_delta.get('passed', 0)}  "
+        f"Warnings delta: {diff.summary_delta.get('warnings', 0)}  "
+        f"Failed delta: {diff.summary_delta.get('failed', 0)}  "
+        f"Score delta: {diff.score_delta:+.2f}"
+    )
 
 
 @app.command("mcp-serve")

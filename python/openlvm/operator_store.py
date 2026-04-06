@@ -173,6 +173,28 @@ class OperatorStore:
             ).fetchall()
         return [BaselineRecord(**dict(row)) for row in rows]
 
+    def get_collection(self, collection_id: str) -> CollectionRecord:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM collections WHERE collection_id = ?",
+                (collection_id,),
+            ).fetchone()
+        if row is None:
+            raise KeyError(f"Collection not found: {collection_id}")
+        return CollectionRecord(**dict(row))
+
+    def get_collection_summary(self, collection_id: str) -> dict:
+        collection = self.get_collection(collection_id)
+        scenarios = self.list_saved_scenarios(collection_id)
+        baselines = self.list_baselines(collection_id)
+        return {
+            "collection": collection.model_dump(),
+            "scenario_count": len(scenarios),
+            "baseline_count": len(baselines),
+            "scenarios": [scenario.model_dump() for scenario in scenarios],
+            "baselines": [baseline.model_dump() for baseline in baselines],
+        }
+
     @staticmethod
     def _new_id(prefix: str) -> str:
         return f"{prefix}-{uuid.uuid4().hex[:12]}"
