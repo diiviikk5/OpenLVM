@@ -21,6 +21,8 @@ openlvm test ..\examples\swarm.yaml --scenarios 25 --chaos network_delay
 openlvm results
 openlvm show-run latest
 openlvm compare <run-a> <run-b>
+openlvm collection-run <collection-id>
+openlvm baseline-compare <collection-id> <run-id>
 openlvm mcp-serve
 ```
 
@@ -45,6 +47,21 @@ You can also force the backend explicitly:
 $env:OPENLVM_RUNTIME = "simulated"
 openlvm doctor
 ```
+
+## Workbench
+
+The Next.js workbench now reads real data from the local OpenLVM stores and can trigger collection runs and baseline compare through API routes.
+
+Run it:
+
+```powershell
+npm --prefix website run dev
+```
+
+Available API routes:
+- `GET /api/workbench/overview`
+- `POST /api/workbench/run`
+- `POST /api/workbench/compare`
 
 Run tests:
 
