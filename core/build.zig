@@ -4,27 +4,31 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    // ── Shared library (for Python FFI) ──────────────────────────
-    const lib = b.addSharedLibrary(.{
-        .name = "openlvm",
+    const lib_module = b.createModule(.{
         .root_source_file = b.path("src/ffi.zig"),
         .target = target,
         .optimize = optimize,
+        .link_libc = true,
     });
-    lib.linkLibC();
+    const lib = b.addLibrary(.{
+        .name = "openlvm",
+        .root_module = lib_module,
+        .linkage = .dynamic,
+    });
     b.installArtifact(lib);
 
-    // ── Standalone binary ────────────────────────────────────────
-    const exe = b.addExecutable(.{
-        .name = "openlvm-core",
+    const exe_module = b.createModule(.{
         .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
+        .link_libc = true,
     });
-    exe.linkLibC();
+    const exe = b.addExecutable(.{
+        .name = "openlvm-core",
+        .root_module = exe_module,
+    });
     b.installArtifact(exe);
 
-    // ── Unit tests ───────────────────────────────────────────────
     const test_targets = [_][]const u8{
         "src/fork_engine.zig",
         "src/memory.zig",
@@ -37,30 +41,37 @@ pub fn build(b: *std.Build) void {
 
     const test_step = b.step("test", "Run unit tests");
     for (test_targets) |test_file| {
-        const t = b.addTest(.{
+        const test_module = b.createModule(.{
             .root_source_file = b.path(test_file),
             .target = target,
             .optimize = optimize,
+            .link_libc = true,
         });
-        t.linkLibC();
+        const t = b.addTest(.{
+            .root_module = test_module,
+        });
         const run_test = b.addRunArtifact(t);
         test_step.dependOn(&run_test.step);
     }
 
-    // ── Benchmarks ───────────────────────────────────────────────
-    const bench = b.addExecutable(.{
-        .name = "openlvm-bench",
+    const bench_module = b.createModule(.{
         .root_source_file = b.path("src/bench.zig"),
         .target = target,
         .optimize = .ReleaseFast,
+        .link_libc = true,
     });
-    bench.linkLibC();
+    const bench = b.addExecutable(.{
+        .name = "openlvm-bench",
+        .root_module = bench_module,
+    });
 
     const bench_step = b.step("bench", "Run benchmarks");
     const run_bench = b.addRunArtifact(bench);
+    if (b.args) |args| {
+        run_bench.addArgs(args);
+    }
     bench_step.dependOn(&run_bench.step);
 
-    // ── Run step ─────────────────────────────────────────────────
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());
     if (b.args) |args| {

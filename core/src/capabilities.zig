@@ -49,7 +49,7 @@ pub const CapabilitySet = packed struct(u64) {
     replay_start: bool = false,
 
     // ── Reserved for future use ──
-    _reserved: u38 = 0,
+    _reserved: u39 = 0,
 
     /// Check if this capability set allows a specific action.
     pub fn has(self: CapabilitySet, cap: Capability) bool {

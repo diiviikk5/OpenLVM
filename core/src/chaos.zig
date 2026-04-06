@@ -54,20 +54,22 @@ pub const ChaosDecision = struct {
     config: ChaosConfig,
 };
 
+const ManagedArrayList = std.array_list.Managed;
+
 /// Core chaos injection engine.
 pub const ChaosEngine = struct {
-    configs: std.ArrayList(ChaosConfig),
-    events: std.ArrayList(ChaosEvent),
-    detail_buffer: std.ArrayList(u8),
+    configs: ManagedArrayList(ChaosConfig),
+    events: ManagedArrayList(ChaosEvent),
+    detail_buffer: ManagedArrayList(u8),
     rng: std.Random.DefaultPrng,
     enabled: bool,
     allocator: std.mem.Allocator,
 
     pub fn init(allocator: std.mem.Allocator, seed: u64) ChaosEngine {
         return .{
-            .configs = std.ArrayList(ChaosConfig).init(allocator),
-            .events = std.ArrayList(ChaosEvent).init(allocator),
-            .detail_buffer = std.ArrayList(u8).init(allocator),
+            .configs = ManagedArrayList(ChaosConfig).init(allocator),
+            .events = ManagedArrayList(ChaosEvent).init(allocator),
+            .detail_buffer = ManagedArrayList(u8).init(allocator),
             .rng = std.Random.DefaultPrng.init(seed),
             .enabled = true,
             .allocator = allocator,

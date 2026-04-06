@@ -14,6 +14,7 @@ def test_simulated_runtime_supports_basic_flow():
 
 
 def test_create_runtime_falls_back_to_simulated_without_library(monkeypatch):
+    monkeypatch.delenv("OPENLVM_RUNTIME", raising=False)
     monkeypatch.setattr("openlvm.runtime.OpenLVMRuntime", lambda: (_ for _ in ()).throw(FileNotFoundError("missing")))
     runtime = create_runtime()
     assert runtime.backend == "simulated"

@@ -7,17 +7,19 @@
 const std = @import("std");
 const posix = std.posix;
 const builtin = @import("builtin");
+const ManagedArrayList = std.array_list.Managed;
 
 /// A memory region backed by mmap (Unix) or VirtualAlloc (Windows).
 /// Provides CoW-friendly allocation that works seamlessly with fork().
 pub const MappedRegion = struct {
-    base: [*]align(std.mem.page_size) u8,
+    base: [*]align(std.heap.page_size_min) u8,
     len: usize,
     used: usize,
 
     /// Create a new memory-mapped region.
     pub fn init(size: usize) !MappedRegion {
-        const aligned_size = std.mem.alignForward(usize, size, std.mem.page_size);
+        const page_size = std.heap.pageSize();
+        const aligned_size = std.mem.alignForward(usize, size, page_size);
 
         if (comptime builtin.os.tag == .windows) {
             // Windows: use VirtualAlloc
@@ -58,7 +60,7 @@ pub const MappedRegion = struct {
             const kernel32 = std.os.windows.kernel32;
             _ = kernel32.VirtualFree(@ptrCast(self.base), 0, std.os.windows.MEM_RELEASE);
         } else {
-            posix.munmap(@as([*]align(std.mem.page_size) u8, @alignCast(self.base))[0..self.len]);
+            posix.munmap(@as([*]align(std.heap.page_size_min) u8, @alignCast(self.base))[0..self.len]);
         }
         self.* = undefined;
     }
@@ -92,16 +94,16 @@ pub const MappedRegion = struct {
 /// Each agent gets its own arena backed by mmap'd regions.
 /// On fork(), these regions are shared via CoW — only modified pages are copied.
 pub const AgentArena = struct {
-    regions: std.ArrayList(MappedRegion),
+    regions: ManagedArrayList(MappedRegion),
     default_region_size: usize,
     total_allocated: usize,
     agent_id: u64,
 
     const DEFAULT_REGION_SIZE = 4 * 1024 * 1024; // 4MB default
 
-    pub fn init(allocator: std.mem.Allocator, agent_id: u64) AgentArena {
+    pub fn init(backing_allocator: std.mem.Allocator, agent_id: u64) AgentArena {
         return AgentArena{
-            .regions = std.ArrayList(MappedRegion).init(allocator),
+            .regions = ManagedArrayList(MappedRegion).init(backing_allocator),
             .default_region_size = DEFAULT_REGION_SIZE,
             .total_allocated = 0,
             .agent_id = agent_id,
@@ -127,7 +129,7 @@ pub const AgentArena = struct {
         }
 
         // Need a new region
-        const region_size = @max(self.default_region_size, size + std.mem.page_size);
+        const region_size = @max(self.default_region_size, size + std.heap.pageSize());
         var new_region = try MappedRegion.init(region_size);
         const ptr = new_region.alloc(size, alignment) orelse return error.OutOfMemory;
         try self.regions.append(new_region);

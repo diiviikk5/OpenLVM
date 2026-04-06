@@ -7,6 +7,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const capabilities = @import("capabilities.zig");
+const ManagedArrayList = std.array_list.Managed;
 
 // ── Seccomp BPF constants (Linux-only) ──────────────────────────
 
@@ -97,7 +98,7 @@ pub const Sandbox = struct {
     created_at_ns: i128,
 
     /// Syscall whitelist built from capabilities.
-    allowed_syscalls: std.ArrayList(u32),
+    allowed_syscalls: ManagedArrayList(u32),
     allocator: std.mem.Allocator,
 
     pub const SandboxStatus = enum {
@@ -116,7 +117,7 @@ pub const Sandbox = struct {
             .namespaces = .{},
             .status = .created,
             .created_at_ns = std.time.nanoTimestamp(),
-            .allowed_syscalls = std.ArrayList(u32).init(allocator),
+            .allowed_syscalls = ManagedArrayList(u32).init(allocator),
             .allocator = allocator,
         };
     }

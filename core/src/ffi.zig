@@ -49,7 +49,7 @@ const ERR_UNKNOWN: i32 = -99;
 // ── Lifecycle ────────────────────────────────────────────────────
 
 /// Initialize the OpenLVM runtime. Must be called before any other function.
-export fn openlvm_init() callconv(.C) i32 {
+export fn openlvm_init() callconv(.c) i32 {
     if (initialized) return ERR_ALREADY_INITIALIZED;
 
     gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -64,7 +64,7 @@ export fn openlvm_init() callconv(.C) i32 {
 }
 
 /// Shutdown the OpenLVM runtime and free all resources.
-export fn openlvm_shutdown() callconv(.C) i32 {
+export fn openlvm_shutdown() callconv(.c) i32 {
     if (!initialized) return ERR_NOT_INITIALIZED;
 
     chaos_engine.deinit();
@@ -81,7 +81,7 @@ export fn openlvm_shutdown() callconv(.C) i32 {
 
 /// Register a new agent with the given capability bitmask.
 /// Returns the agent ID (positive) or error code (negative).
-export fn openlvm_register_agent(caps_bitmask: u64) callconv(.C) i64 {
+export fn openlvm_register_agent(caps_bitmask: u64) callconv(.c) i64 {
     if (!initialized) return ERR_NOT_INITIALIZED;
     const caps = capabilities.CapabilitySet.fromU64(caps_bitmask);
     const id = engine.registerAgent(caps) catch return ERR_OUT_OF_MEMORY;
@@ -89,7 +89,7 @@ export fn openlvm_register_agent(caps_bitmask: u64) callconv(.C) i64 {
 }
 
 /// Terminate an agent and free its resources.
-export fn openlvm_terminate_agent(agent_id: u64) callconv(.C) i32 {
+export fn openlvm_terminate_agent(agent_id: u64) callconv(.c) i32 {
     if (!initialized) return ERR_NOT_INITIALIZED;
     engine.terminateAgent(agent_id) catch return ERR_AGENT_NOT_FOUND;
     sandbox_mgr.removeSandbox(agent_id);
@@ -97,7 +97,7 @@ export fn openlvm_terminate_agent(agent_id: u64) callconv(.C) i32 {
 }
 
 /// Get the number of active agents.
-export fn openlvm_active_agent_count() callconv(.C) i64 {
+export fn openlvm_active_agent_count() callconv(.c) i64 {
     if (!initialized) return ERR_NOT_INITIALIZED;
     return @intCast(engine.activeAgentCount());
 }
@@ -105,7 +105,7 @@ export fn openlvm_active_agent_count() callconv(.C) i64 {
 // ── Fork Operations ──────────────────────────────────────────────
 
 /// Fork a single agent. Returns the child agent ID or error code.
-export fn openlvm_fork_agent(agent_id: u64) callconv(.C) i64 {
+export fn openlvm_fork_agent(agent_id: u64) callconv(.c) i64 {
     if (!initialized) return ERR_NOT_INITIALIZED;
 
     const result = engine.forkAgent(agent_id) catch |err| {
@@ -127,7 +127,7 @@ export fn openlvm_fork_agent(agent_id: u64) callconv(.C) i64 {
 
 /// Fork N parallel universes from the same agent.
 /// Writes child IDs into the output buffer. Returns count or error.
-export fn openlvm_fork_many(agent_id: u64, count: u32, out_ids: [*]i64) callconv(.C) i32 {
+export fn openlvm_fork_many(agent_id: u64, count: u32, out_ids: [*]i64) callconv(.c) i32 {
     if (!initialized) return ERR_NOT_INITIALIZED;
     if (count == 0) return 0;
 
@@ -151,7 +151,7 @@ export fn openlvm_fork_many(agent_id: u64, count: u32, out_ids: [*]i64) callconv
 
 /// Create a snapshot of an agent's state.
 /// Returns snapshot ID (positive) or error code (negative).
-export fn openlvm_snapshot_create(agent_id: u64) callconv(.C) i64 {
+export fn openlvm_snapshot_create(agent_id: u64) callconv(.c) i64 {
     if (!initialized) return ERR_NOT_INITIALIZED;
 
     const agent = engine.getAgent(agent_id) orelse return ERR_AGENT_NOT_FOUND;
@@ -165,13 +165,13 @@ export fn openlvm_snapshot_create(agent_id: u64) callconv(.C) i64 {
 }
 
 /// Get the number of snapshots.
-export fn openlvm_snapshot_count() callconv(.C) i64 {
+export fn openlvm_snapshot_count() callconv(.c) i64 {
     if (!initialized) return ERR_NOT_INITIALIZED;
     return @intCast(snap_store.count());
 }
 
 /// Delete a snapshot.
-export fn openlvm_snapshot_delete(snapshot_id: u64) callconv(.C) i32 {
+export fn openlvm_snapshot_delete(snapshot_id: u64) callconv(.c) i32 {
     if (!initialized) return ERR_NOT_INITIALIZED;
     snap_store.deleteSnapshot(snapshot_id) catch return ERR_SNAPSHOT_NOT_FOUND;
     return 0;
@@ -181,7 +181,7 @@ export fn openlvm_snapshot_delete(snapshot_id: u64) callconv(.C) i32 {
 
 /// Start recording events for an agent.
 /// Returns recording ID (positive) or error code (negative).
-export fn openlvm_replay_start(agent_id: u64) callconv(.C) i64 {
+export fn openlvm_replay_start(agent_id: u64) callconv(.c) i64 {
     if (!initialized) return ERR_NOT_INITIALIZED;
     const id = replay_engine.startRecording(agent_id, null) catch return ERR_OUT_OF_MEMORY;
     return @intCast(id);
@@ -195,7 +195,7 @@ export fn openlvm_replay_record_event(
     data_ptr: [*]const u8,
     data_len: u32,
     duration_ns: u64,
-) callconv(.C) i32 {
+) callconv(.c) i32 {
     if (!initialized) return ERR_NOT_INITIALIZED;
     const data = data_ptr[0..data_len];
     replay_engine.recordEvent(
@@ -205,22 +205,21 @@ export fn openlvm_replay_record_event(
         data,
         duration_ns,
         null,
-    ) catch |err| {
-        _ = err;
+    ) catch {
         return ERR_RECORDING_NOT_FOUND;
     };
     return 0;
 }
 
 /// Stop recording.
-export fn openlvm_replay_stop(recording_id: u64) callconv(.C) i32 {
+export fn openlvm_replay_stop(recording_id: u64) callconv(.c) i32 {
     if (!initialized) return ERR_NOT_INITIALIZED;
     replay_engine.stopRecording(recording_id) catch return ERR_RECORDING_NOT_FOUND;
     return 0;
 }
 
 /// Get event count for a recording.
-export fn openlvm_replay_event_count(recording_id: u64) callconv(.C) i64 {
+export fn openlvm_replay_event_count(recording_id: u64) callconv(.c) i64 {
     if (!initialized) return ERR_NOT_INITIALIZED;
     const info = replay_engine.getRecordingInfo(recording_id) orelse return ERR_RECORDING_NOT_FOUND;
     return @intCast(info.event_count);
@@ -229,7 +228,7 @@ export fn openlvm_replay_event_count(recording_id: u64) callconv(.C) i64 {
 // ── Sandbox Operations ───────────────────────────────────────────
 
 /// Create a sandbox for an agent with the given capability bitmask.
-export fn openlvm_sandbox_create(agent_id: u64, caps_bitmask: u64) callconv(.C) i32 {
+export fn openlvm_sandbox_create(agent_id: u64, caps_bitmask: u64) callconv(.c) i32 {
     if (!initialized) return ERR_NOT_INITIALIZED;
     const caps = capabilities.CapabilitySet.fromU64(caps_bitmask);
     _ = sandbox_mgr.createSandbox(agent_id, caps) catch return ERR_OUT_OF_MEMORY;
@@ -237,7 +236,7 @@ export fn openlvm_sandbox_create(agent_id: u64, caps_bitmask: u64) callconv(.C) 
 }
 
 /// Apply sandbox restrictions to the current process.
-export fn openlvm_sandbox_apply(agent_id: u64) callconv(.C) i32 {
+export fn openlvm_sandbox_apply(agent_id: u64) callconv(.c) i32 {
     if (!initialized) return ERR_NOT_INITIALIZED;
     const sb = sandbox_mgr.getSandbox(agent_id) orelse return ERR_AGENT_NOT_FOUND;
     sb.apply() catch return ERR_UNKNOWN;
@@ -245,7 +244,7 @@ export fn openlvm_sandbox_apply(agent_id: u64) callconv(.C) i32 {
 }
 
 /// Check if an agent has a specific capability.
-export fn openlvm_sandbox_check_cap(agent_id: u64, cap_index: u8) callconv(.C) i32 {
+export fn openlvm_sandbox_check_cap(agent_id: u64, cap_index: u8) callconv(.c) i32 {
     if (!initialized) return ERR_NOT_INITIALIZED;
     const sb = sandbox_mgr.getSandbox(agent_id) orelse return ERR_AGENT_NOT_FOUND;
     const cap: capabilities.Capability = @enumFromInt(@as(u6, @truncate(cap_index)));
@@ -267,7 +266,7 @@ export fn openlvm_chaos_add(
     agent_id: u64,
     probability: f64,
     param_value: u64,
-) callconv(.C) i32 {
+) callconv(.c) i32 {
     if (!initialized) return ERR_NOT_INITIALIZED;
     if (probability < 0.0 or probability > 1.0) return ERR_INVALID_PARAM;
 
@@ -293,40 +292,40 @@ export fn openlvm_chaos_add(
 }
 
 /// Get network delay for an agent (0 = no delay).
-export fn openlvm_chaos_get_delay(agent_id: u64) callconv(.C) u64 {
+export fn openlvm_chaos_get_delay(agent_id: u64) callconv(.c) u64 {
     if (!initialized) return 0;
     return chaos_engine.getNetworkDelay(agent_id);
 }
 
 /// Check if API should error (returns error code, or 0 = no error).
-export fn openlvm_chaos_get_api_error(agent_id: u64) callconv(.C) u32 {
+export fn openlvm_chaos_get_api_error(agent_id: u64) callconv(.c) u32 {
     if (!initialized) return 0;
     return chaos_engine.getApiError(agent_id) orelse 0;
 }
 
 /// Enable/disable chaos globally.
-export fn openlvm_chaos_set_enabled(enabled: u8) callconv(.C) i32 {
+export fn openlvm_chaos_set_enabled(enabled: u8) callconv(.c) i32 {
     if (!initialized) return ERR_NOT_INITIALIZED;
     chaos_engine.setEnabled(enabled != 0);
     return 0;
 }
 
 /// Get total chaos events recorded.
-export fn openlvm_chaos_event_count() callconv(.C) i64 {
+export fn openlvm_chaos_event_count() callconv(.c) i64 {
     if (!initialized) return 0;
     return @intCast(chaos_engine.eventCount());
 }
 
 // ── Version ──────────────────────────────────────────────────────
 
-export fn openlvm_version_major() callconv(.C) u32 {
+export fn openlvm_version_major() callconv(.c) u32 {
     return 0;
 }
 
-export fn openlvm_version_minor() callconv(.C) u32 {
+export fn openlvm_version_minor() callconv(.c) u32 {
     return 1;
 }
 
-export fn openlvm_version_patch() callconv(.C) u32 {
+export fn openlvm_version_patch() callconv(.c) u32 {
     return 0;
 }

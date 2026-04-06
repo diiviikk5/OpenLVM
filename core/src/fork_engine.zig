@@ -113,13 +113,16 @@ pub const ForkEngine = struct {
     /// On Windows: creates a logical fork with serialized state.
     pub fn forkAgent(self: *ForkEngine, agent_id: AgentId) ForkError!ForkResult {
         const agent = self.agents.getPtr(agent_id) orelse return ForkError.AgentNotFound;
+        agent.fork_count += 1;
+        const parent_id = agent.id;
+        const parent_caps = agent.caps;
 
         if (self.total_forks >= self.max_forks) return ForkError.TooManyForks;
 
         if (comptime builtin.os.tag == .linux or builtin.os.tag == .macos) {
-            return self.forkUnix(agent);
+            return self.forkUnix(parent_id, parent_caps);
         } else {
-            return self.forkSimulated(agent);
+            return self.forkSimulated(parent_id, parent_caps);
         }
     }
 
@@ -180,20 +183,19 @@ pub const ForkEngine = struct {
 
     // ── Internal: Unix fork ──────────────────────────────────────
 
-    fn forkUnix(self: *ForkEngine, agent: *AgentState) ForkError!ForkResult {
+    fn forkUnix(self: *ForkEngine, parent_id: AgentId, parent_caps: capabilities.CapabilitySet) ForkError!ForkResult {
         // On real Unix, we'd call posix.fork() here.
         // For the library/shared-lib use case, we create logical forks
         // that can be used by the Python orchestrator to manage processes.
-        return self.forkSimulated(agent);
+        return self.forkSimulated(parent_id, parent_caps);
     }
 
     // ── Internal: Simulated fork (cross-platform) ────────────────
 
-    fn forkSimulated(self: *ForkEngine, agent: *AgentState) ForkError!ForkResult {
+    fn forkSimulated(self: *ForkEngine, parent_id: AgentId, parent_caps: capabilities.CapabilitySet) ForkError!ForkResult {
         const child_id = self.next_id;
         self.next_id += 1;
         self.total_forks += 1;
-        agent.fork_count += 1;
 
         const now = std.time.nanoTimestamp();
 
@@ -201,9 +203,9 @@ pub const ForkEngine = struct {
         const child_state = AgentState{
             .id = child_id,
             .arena = memory.AgentArena.init(self.allocator, child_id),
-            .caps = agent.caps, // Inherit parent capabilities
+            .caps = parent_caps, // Inherit parent capabilities
             .fork_count = 0,
-            .parent_id = agent.id,
+            .parent_id = parent_id,
             .created_at_ns = now,
             .status = .running,
         };
@@ -214,7 +216,7 @@ pub const ForkEngine = struct {
             .parent = ForkHandle{
                 .id = child_id,
                 .pid = @intCast(child_id),
-                .parent_agent_id = agent.id,
+                .parent_agent_id = parent_id,
                 .created_at_ns = now,
                 .is_child = false,
             },

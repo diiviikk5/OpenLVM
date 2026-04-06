@@ -5,6 +5,7 @@
 
 const std = @import("std");
 const capabilities = @import("capabilities.zig");
+const ManagedArrayList = std.array_list.Managed;
 
 /// Unique identifier for a snapshot.
 pub const SnapshotId = u64;
@@ -30,14 +31,14 @@ pub const Snapshot = struct {
 /// Snapshot storage backend.
 pub const SnapshotStore = struct {
     snapshots: std.AutoHashMap(SnapshotId, Snapshot),
-    data_buffer: std.ArrayList(u8),
+    data_buffer: ManagedArrayList(u8),
     next_id: SnapshotId,
     allocator: std.mem.Allocator,
 
     pub fn init(allocator: std.mem.Allocator) SnapshotStore {
         return SnapshotStore{
             .snapshots = std.AutoHashMap(SnapshotId, Snapshot).init(allocator),
-            .data_buffer = std.ArrayList(u8).init(allocator),
+            .data_buffer = ManagedArrayList(u8).init(allocator),
             .next_id = 1,
             .allocator = allocator,
         };
@@ -106,12 +107,11 @@ pub const SnapshotStore = struct {
 
     /// Delete a snapshot.
     pub fn deleteSnapshot(self: *SnapshotStore, id: SnapshotId) !void {
-        var snap = self.snapshots.get(id) orelse return error.SnapshotNotFound;
+        const snap = self.snapshots.get(id) orelse return error.SnapshotNotFound;
         if (snap.label) |label| {
             self.allocator.free(label);
         }
         _ = self.snapshots.remove(id);
-        _ = snap;
     }
 
     /// List all snapshot IDs.

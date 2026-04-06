@@ -183,12 +183,15 @@ class OpenLVMRuntime(BaseRuntime):
     def _default_library_path() -> Path:
         if sys.platform == "win32":
             lib_name = "openlvm.dll"
+            subdir = "bin"
         elif sys.platform == "darwin":
             lib_name = "libopenlvm.dylib"
+            subdir = "lib"
         else:
             lib_name = "libopenlvm.so"
+            subdir = "lib"
         root_dir = Path(__file__).resolve().parents[2]
-        return root_dir / "core" / "zig-out" / "lib" / lib_name
+        return root_dir / "core" / "zig-out" / subdir / lib_name
 
     @staticmethod
     def _configure_signatures(lib: ctypes.CDLL) -> None:

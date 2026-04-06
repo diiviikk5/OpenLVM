@@ -5,6 +5,7 @@
 
 const std = @import("std");
 const snapshot_mod = @import("snapshot.zig");
+const ManagedArrayList = std.array_list.Managed;
 
 pub const EventType = enum(u8) {
     llm_request = 0,
@@ -44,8 +45,8 @@ const Recording = struct {
     id: RecordingId,
     agent_id: u64,
     start_snapshot: ?snapshot_mod.SnapshotId,
-    events: std.ArrayList(ReplayEvent),
-    data_buffer: std.ArrayList(u8),
+    events: ManagedArrayList(ReplayEvent),
+    data_buffer: ManagedArrayList(u8),
     next_seq: u64,
     start_time_ns: i128,
     status: RecordingStatus,
@@ -123,8 +124,8 @@ pub const ReplayEngine = struct {
             .id = id,
             .agent_id = agent_id,
             .start_snapshot = start_snapshot,
-            .events = std.ArrayList(ReplayEvent).init(self.allocator),
-            .data_buffer = std.ArrayList(u8).init(self.allocator),
+            .events = ManagedArrayList(ReplayEvent).init(self.allocator),
+            .data_buffer = ManagedArrayList(u8).init(self.allocator),
             .next_seq = 0,
             .start_time_ns = std.time.nanoTimestamp(),
             .status = .active,

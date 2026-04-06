@@ -46,3 +46,6 @@ openlvm-results/
 *.a
 *.o
 *.obj
+
+# Local tools
+tools/
