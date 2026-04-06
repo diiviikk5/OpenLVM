@@ -37,6 +37,7 @@ Build and install:
 ```
 
 If Zig is not installed yet, you can still run the Python layer in simulated mode. The CLI will fall back automatically when the shared library is unavailable.
+The local scripts will use `tools/zig-0.15.2/zig.exe` automatically when it exists.
 
 You can also force the backend explicitly:
 

@@ -91,23 +91,36 @@ pub const CapabilitySet = packed struct(u64) {
 
     /// Merge two capability sets (union).
     pub fn merge(self: CapabilitySet, other: CapabilitySet) CapabilitySet {
-        const a: u64 = @bitCast(self);
-        const b: u64 = @bitCast(other);
-        return @bitCast(a | b);
+        var result = self;
+        inline for (comptime std.meta.fields(Capability)) |field| {
+            const cap: Capability = @field(Capability, field.name);
+            if (other.has(cap)) {
+                @field(result, field.name) = true;
+            }
+        }
+        return result;
     }
 
     /// Intersect two capability sets.
     pub fn intersect(self: CapabilitySet, other: CapabilitySet) CapabilitySet {
-        const a: u64 = @bitCast(self);
-        const b: u64 = @bitCast(other);
-        return @bitCast(a & b);
+        var result: CapabilitySet = .{};
+        inline for (comptime std.meta.fields(Capability)) |field| {
+            const cap: Capability = @field(Capability, field.name);
+            @field(result, field.name) = self.has(cap) and other.has(cap);
+        }
+        return result;
     }
 
     /// Revoke specific capabilities (subtract).
     pub fn revoke(self: CapabilitySet, to_revoke: CapabilitySet) CapabilitySet {
-        const a: u64 = @bitCast(self);
-        const b: u64 = @bitCast(to_revoke);
-        return @bitCast(a & ~b);
+        var result = self;
+        inline for (comptime std.meta.fields(Capability)) |field| {
+            const cap: Capability = @field(Capability, field.name);
+            if (to_revoke.has(cap)) {
+                @field(result, field.name) = false;
+            }
+        }
+        return result;
     }
 
     /// Serialize to u64 for FFI.
@@ -251,7 +264,17 @@ test "CapabilitySet merge" {
 
 test "CapabilitySet revoke" {
     const full = Profiles.privileged;
-    const to_revoke = CapabilitySet{ .network_outbound = true, .subprocess_spawn = true };
+    const to_revoke = CapabilitySet{
+        .network_outbound = true,
+        .subprocess_spawn = true,
+        .fs_read = false,
+        .llm_call = false,
+        .tool_use = false,
+        .shared_memory_read = false,
+        .shared_db_read = false,
+        .clock_read = false,
+        .random_generate = false,
+    };
     const restricted = full.revoke(to_revoke);
     try std.testing.expect(!restricted.has(.network_outbound));
     try std.testing.expect(!restricted.has(.subprocess_spawn));

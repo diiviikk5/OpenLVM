@@ -1,3 +1,7 @@
+from pathlib import Path
+
+import pytest
+
 from openlvm.runtime import SimulatedOpenLVMRuntime, create_runtime
 
 
@@ -24,3 +28,13 @@ def test_create_runtime_respects_env_override(monkeypatch):
     monkeypatch.setenv("OPENLVM_RUNTIME", "simulated")
     runtime = create_runtime()
     assert runtime.backend == "simulated"
+
+
+@pytest.mark.skipif(
+    not (Path(__file__).resolve().parents[2] / "core" / "zig-out" / "bin" / "openlvm.dll").exists(),
+    reason="Zig runtime library is not built",
+)
+def test_create_runtime_uses_zig_backend_when_library_exists(monkeypatch):
+    monkeypatch.setenv("OPENLVM_RUNTIME", "zig")
+    runtime = create_runtime()
+    assert runtime.backend == "zig"

@@ -206,7 +206,7 @@ test "MappedRegion basic allocation" {
     defer region.deinit();
 
     const ptr = region.alloc(128, 8) orelse unreachable;
-    try std.testing.expect(ptr != undefined);
+    try std.testing.expect(@intFromPtr(ptr) != 0);
     try std.testing.expectEqual(@as(usize, 128), region.bytesUsed());
 }
 
