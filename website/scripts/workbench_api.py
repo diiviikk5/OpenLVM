@@ -39,12 +39,28 @@ def _overview(args: list[str]) -> dict:
         col["collection_id"]: [scn.model_dump() for scn in op_store.list_saved_scenarios(col["collection_id"])]
         for col in collections
     }
+    compare_artifacts_by_collection = {
+        col["collection_id"]: [
+            {
+                "artifact_id": art.artifact_id,
+                "collection_id": art.collection_id,
+                "candidate_run_id": art.candidate_run_id,
+                "baseline_ids": art.baseline_ids,
+                "filename": art.filename,
+                "created_at": art.created_at,
+                "actor_id": art.actor_id,
+            }
+            for art in op_store.list_compare_artifacts(col["collection_id"], limit=20)
+        ]
+        for col in collections
+    }
     recent_runs = [run.model_dump() for run in eval_store.list_runs(limit=20)]
     return {
         "workspaces": workspaces,
         "collections": collections,
         "baselines_by_collection": baselines_by_collection,
         "scenarios_by_collection": scenarios_by_collection,
+        "compare_artifacts_by_collection": compare_artifacts_by_collection,
         "recent_runs": recent_runs,
         "audit_events": op_store.list_audit_events(limit=100),
     }
@@ -80,17 +96,10 @@ def _run_details(args: list[str]) -> dict:
     return {"run": run, "trace_summary": trace_summary}
 
 
-def _compare_baseline(args: list[str]) -> dict:
-    if len(args) < 2:
-        raise ValueError("collection_id and run_id are required")
-
+def _compute_compare_payload(collection_id: str, run_id: str, baseline_id_csv: str, workspace_scope: str) -> tuple[dict, list[str]]:
     from openlvm.eval_store import EvalStore
     from openlvm.operator_store import OperatorStore
 
-    collection_id = args[0]
-    run_id = args[1]
-    baseline_id_csv = args[2] if len(args) > 2 else ""
-    workspace_scope = args[3] if len(args) > 3 else ""
     if workspace_scope:
         _assert_collection_workspace(collection_id, workspace_scope)
     op_store = OperatorStore()
@@ -110,7 +119,141 @@ def _compare_baseline(args: list[str]) -> dict:
         diff["baseline_id"] = baseline.baseline_id
         diff["baseline_label"] = baseline.label
         diffs.append(diff)
-    return {"diffs": diffs, "candidate_run_id": run_id}
+    return {"diffs": diffs, "candidate_run_id": run_id}, [b.baseline_id for b in selected_baselines]
+
+
+def _compare_baseline(args: list[str]) -> dict:
+    if len(args) < 2:
+        raise ValueError("collection_id and run_id are required")
+
+    collection_id = args[0]
+    run_id = args[1]
+    baseline_id_csv = args[2] if len(args) > 2 else ""
+    workspace_scope = args[3] if len(args) > 3 else ""
+    payload, _ = _compute_compare_payload(collection_id, run_id, baseline_id_csv, workspace_scope)
+    return payload
+
+
+def _save_compare_artifact(args: list[str]) -> dict:
+    if len(args) < 4:
+        raise ValueError("collection_id, run_id, actor_id, and workspace_scope are required")
+    from openlvm.operator_store import OperatorStore
+
+    collection_id = args[0]
+    run_id = args[1]
+    baseline_id_csv = args[2] if len(args) > 2 else ""
+    actor_id = args[3]
+    workspace_scope = args[4] if len(args) > 4 else ""
+    payload, baseline_ids = _compute_compare_payload(collection_id, run_id, baseline_id_csv, workspace_scope)
+    artifact = OperatorStore().save_compare_artifact(
+        collection_id,
+        run_id,
+        baseline_ids,
+        payload,
+        actor_id=actor_id,
+    )
+    return {
+        "artifact_id": artifact.artifact_id,
+        "filename": artifact.filename,
+        "created_at": artifact.created_at,
+        "candidate_run_id": artifact.candidate_run_id,
+        "baseline_ids": artifact.baseline_ids,
+    }
+
+
+def _list_compare_artifacts(args: list[str]) -> dict:
+    if not args:
+        raise ValueError("collection_id is required")
+    from openlvm.operator_store import OperatorStore
+
+    collection_id = args[0]
+    workspace_scope = args[1] if len(args) > 1 else ""
+    if workspace_scope:
+        _assert_collection_workspace(collection_id, workspace_scope)
+    rows = OperatorStore().list_compare_artifacts(collection_id, limit=50)
+    return {
+        "artifacts": [
+            {
+                "artifact_id": row.artifact_id,
+                "collection_id": row.collection_id,
+                "candidate_run_id": row.candidate_run_id,
+                "baseline_ids": row.baseline_ids,
+                "filename": row.filename,
+                "created_at": row.created_at,
+                "actor_id": row.actor_id,
+            }
+            for row in rows
+        ]
+    }
+
+
+def _download_compare_artifact(args: list[str]) -> dict:
+    if not args:
+        raise ValueError("artifact_id is required")
+    from openlvm.operator_store import OperatorStore
+
+    artifact_id = args[0]
+    output_format = args[1] if len(args) > 1 else "json"
+    workspace_scope = args[2] if len(args) > 2 else ""
+    artifact = OperatorStore().get_compare_artifact(artifact_id)
+    if workspace_scope:
+        _assert_collection_workspace(artifact.collection_id, workspace_scope)
+    if output_format == "json":
+        content = json.dumps(artifact.payload, indent=2)
+        mime_type = "application/json"
+        extension = "json"
+    elif output_format == "csv":
+        content = _compare_payload_to_csv(artifact.payload)
+        mime_type = "text/csv"
+        extension = "csv"
+    else:
+        raise ValueError("format must be json or csv")
+    filename_base = artifact.filename.rsplit(".", 1)[0]
+    return {
+        "artifact_id": artifact.artifact_id,
+        "filename": f"{filename_base}.{extension}",
+        "mime_type": mime_type,
+        "content": content,
+        "created_at": artifact.created_at,
+    }
+
+
+def _compare_payload_to_csv(payload: dict) -> str:
+    header = [
+        "baseline_id",
+        "baseline_label",
+        "baseline_run_id",
+        "candidate_run_id",
+        "scenario_name",
+        "baseline_status",
+        "candidate_status",
+        "baseline_score",
+        "candidate_score",
+        "warning_delta",
+        "trace_count_delta",
+        "warning_event_delta",
+    ]
+    lines = [",".join(f'"{field}"' for field in header)]
+    diffs = payload.get("diffs", [])
+    for diff in diffs:
+        for scenario in diff.get("scenario_diffs", []):
+            row = [
+                diff.get("baseline_id", ""),
+                diff.get("baseline_label", ""),
+                diff.get("baseline_run_id", ""),
+                diff.get("candidate_run_id", ""),
+                scenario.get("name", ""),
+                scenario.get("baseline_status", ""),
+                scenario.get("candidate_status", ""),
+                scenario.get("baseline_score", ""),
+                scenario.get("candidate_score", ""),
+                scenario.get("warning_delta", ""),
+                diff.get("trace_delta", {}).get("trace_count_delta", ""),
+                diff.get("trace_delta", {}).get("warning_event_delta", ""),
+            ]
+            escaped = ['"' + str(value).replace('"', '""') + '"' for value in row]
+            lines.append(",".join(escaped))
+    return "\n".join(lines)
 
 
 def _resolve_config_path(config_path: str) -> str:
@@ -297,6 +440,12 @@ def _main() -> int:
             result = _run_details(args)
         elif command == "compare_baseline":
             result = _compare_baseline(args)
+        elif command == "save_compare_artifact":
+            result = _save_compare_artifact(args)
+        elif command == "list_compare_artifacts":
+            result = _list_compare_artifacts(args)
+        elif command == "download_compare_artifact":
+            result = _download_compare_artifact(args)
         elif command == "create_workspace":
             result = _create_workspace(args)
         elif command == "update_workspace":

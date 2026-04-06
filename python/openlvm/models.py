@@ -163,3 +163,14 @@ class BaselineRecord(BaseModel):
     run_id: str
     label: str
     created_at: str
+
+
+class CompareArtifactRecord(BaseModel):
+    artifact_id: str
+    collection_id: str
+    candidate_run_id: str
+    baseline_ids: List[str] = Field(default_factory=list)
+    filename: str
+    payload: Dict[str, Any] = Field(default_factory=dict)
+    created_at: str
+    actor_id: str = "system"

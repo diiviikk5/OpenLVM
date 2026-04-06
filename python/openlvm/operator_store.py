@@ -1,4 +1,4 @@
-"""Storage layer for workspaces, collections, saved scenarios, and baselines."""
+"""Storage layer for workspaces, collections, saved scenarios, baselines, and compare artifacts."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from .models import BaselineRecord, CollectionRecord, SavedScenarioRecord, WorkspaceRecord
+from .models import BaselineRecord, CollectionRecord, CompareArtifactRecord, SavedScenarioRecord, WorkspaceRecord
 
 
 class OperatorStore:
@@ -84,6 +84,20 @@ class OperatorStore:
                     entity_id TEXT NOT NULL,
                     details_json TEXT NOT NULL,
                     created_at TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS compare_artifacts (
+                    artifact_id TEXT PRIMARY KEY,
+                    collection_id TEXT NOT NULL,
+                    candidate_run_id TEXT NOT NULL,
+                    baseline_ids_json TEXT NOT NULL,
+                    filename TEXT NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    actor_id TEXT NOT NULL
                 )
                 """
             )
@@ -171,6 +185,7 @@ class OperatorStore:
             for collection_id in collection_ids:
                 conn.execute("DELETE FROM saved_scenarios WHERE collection_id = ?", (collection_id,))
                 conn.execute("DELETE FROM baselines WHERE collection_id = ?", (collection_id,))
+                conn.execute("DELETE FROM compare_artifacts WHERE collection_id = ?", (collection_id,))
             conn.execute("DELETE FROM collections WHERE workspace_id = ?", (workspace_id,))
             deleted = conn.execute(
                 "DELETE FROM workspaces WHERE workspace_id = ?",
@@ -272,6 +287,10 @@ class OperatorStore:
                 "DELETE FROM baselines WHERE collection_id = ?",
                 (collection_id,),
             ).rowcount
+            deleted_artifacts = conn.execute(
+                "DELETE FROM compare_artifacts WHERE collection_id = ?",
+                (collection_id,),
+            ).rowcount
             deleted = conn.execute(
                 "DELETE FROM collections WHERE collection_id = ?",
                 (collection_id,),
@@ -286,6 +305,7 @@ class OperatorStore:
                     details={
                         "deleted_scenarios": deleted_scenarios,
                         "deleted_baselines": deleted_baselines,
+                        "deleted_artifacts": deleted_artifacts,
                     },
                 )
         return deleted > 0
@@ -452,6 +472,89 @@ class OperatorStore:
             raise KeyError(f"Collection not found: {collection_id}")
         return CollectionRecord(**dict(row))
 
+    def save_compare_artifact(
+        self,
+        collection_id: str,
+        candidate_run_id: str,
+        baseline_ids: list[str],
+        payload: dict,
+        *,
+        filename: Optional[str] = None,
+        actor_id: str = "system",
+    ) -> CompareArtifactRecord:
+        record = CompareArtifactRecord(
+            artifact_id=self._new_id("cmp"),
+            collection_id=collection_id,
+            candidate_run_id=candidate_run_id,
+            baseline_ids=baseline_ids,
+            filename=filename or self._default_compare_filename(candidate_run_id),
+            payload=payload,
+            created_at=self._timestamp(),
+            actor_id=actor_id,
+        )
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO compare_artifacts (
+                    artifact_id, collection_id, candidate_run_id, baseline_ids_json,
+                    filename, payload_json, created_at, actor_id
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    record.artifact_id,
+                    record.collection_id,
+                    record.candidate_run_id,
+                    json.dumps(record.baseline_ids),
+                    record.filename,
+                    json.dumps(record.payload),
+                    record.created_at,
+                    record.actor_id,
+                ),
+            )
+            self._insert_audit_event(
+                conn,
+                actor_id=actor_id,
+                action="compare_artifact.create",
+                entity_type="compare_artifact",
+                entity_id=record.artifact_id,
+                details={
+                    "collection_id": collection_id,
+                    "candidate_run_id": candidate_run_id,
+                    "baseline_count": len(baseline_ids),
+                    "filename": record.filename,
+                },
+            )
+        return record
+
+    def list_compare_artifacts(self, collection_id: str, limit: int = 50) -> list[CompareArtifactRecord]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT artifact_id, collection_id, candidate_run_id, baseline_ids_json, filename, payload_json, created_at, actor_id
+                FROM compare_artifacts
+                WHERE collection_id = ?
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (collection_id, limit),
+            ).fetchall()
+        return [self._row_to_compare_artifact(row) for row in rows]
+
+    def get_compare_artifact(self, artifact_id: str) -> CompareArtifactRecord:
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT artifact_id, collection_id, candidate_run_id, baseline_ids_json, filename, payload_json, created_at, actor_id
+                FROM compare_artifacts
+                WHERE artifact_id = ?
+                """,
+                (artifact_id,),
+            ).fetchone()
+        if row is None:
+            raise KeyError(f"Compare artifact not found: {artifact_id}")
+        return self._row_to_compare_artifact(row)
+
     def get_collection_summary(self, collection_id: str) -> dict:
         collection = self.get_collection(collection_id)
         workspace = self.get_workspace(collection.workspace_id)
@@ -483,6 +586,19 @@ class OperatorStore:
             event["details"] = json.loads(event.pop("details_json"))
             events.append(event)
         return events
+
+    @staticmethod
+    def _row_to_compare_artifact(row: sqlite3.Row) -> CompareArtifactRecord:
+        return CompareArtifactRecord(
+            artifact_id=row["artifact_id"],
+            collection_id=row["collection_id"],
+            candidate_run_id=row["candidate_run_id"],
+            baseline_ids=json.loads(row["baseline_ids_json"]),
+            filename=row["filename"],
+            payload=json.loads(row["payload_json"]),
+            created_at=row["created_at"],
+            actor_id=row["actor_id"],
+        )
 
     def _insert_audit_event(
         self,
@@ -517,3 +633,8 @@ class OperatorStore:
     @staticmethod
     def _timestamp() -> str:
         return datetime.now(timezone.utc).isoformat()
+
+    @staticmethod
+    def _default_compare_filename(candidate_run_id: str) -> str:
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        return f"openlvm-compare-{candidate_run_id}-{stamp}.json"

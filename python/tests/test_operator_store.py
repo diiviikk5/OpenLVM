@@ -39,3 +39,36 @@ def test_operator_store_updates_deletes_and_audits(tmp_path):
     assert "collection.update" in actions
     assert "collection.delete" in actions
     assert "workspace.delete" in actions
+
+
+def test_operator_store_compare_artifacts(tmp_path):
+    store = OperatorStore(tmp_path / "operator_store.db")
+    workspace = store.create_workspace("Team A", actor_id="alice")
+    collection = store.create_collection(workspace.workspace_id, "Customer Support", actor_id="alice")
+    payload = {
+        "candidate_run_id": "run-222",
+        "diffs": [
+            {
+                "baseline_id": "base-1",
+                "baseline_run_id": "run-111",
+                "candidate_run_id": "run-222",
+                "scenario_diffs": [],
+            }
+        ],
+    }
+
+    artifact = store.save_compare_artifact(
+        collection.collection_id,
+        "run-222",
+        ["base-1"],
+        payload,
+        actor_id="alice",
+    )
+    listed = store.list_compare_artifacts(collection.collection_id)
+    fetched = store.get_compare_artifact(artifact.artifact_id)
+
+    assert listed[0].artifact_id == artifact.artifact_id
+    assert fetched.candidate_run_id == "run-222"
+    assert fetched.baseline_ids == ["base-1"]
+    assert fetched.payload["candidate_run_id"] == "run-222"
+    assert any(event["action"] == "compare_artifact.create" for event in store.list_audit_events(limit=20))
