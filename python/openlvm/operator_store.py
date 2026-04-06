@@ -93,6 +93,16 @@ class OperatorStore:
             rows = conn.execute("SELECT * FROM workspaces ORDER BY created_at DESC").fetchall()
         return [WorkspaceRecord(**dict(row)) for row in rows]
 
+    def get_workspace(self, workspace_id: str) -> WorkspaceRecord:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM workspaces WHERE workspace_id = ?",
+                (workspace_id,),
+            ).fetchone()
+        if row is None:
+            raise KeyError(f"Workspace not found: {workspace_id}")
+        return WorkspaceRecord(**dict(row))
+
     def create_collection(self, workspace_id: str, name: str, description: str = "") -> CollectionRecord:
         record = CollectionRecord(
             collection_id=self._new_id("col"),
@@ -150,6 +160,16 @@ class OperatorStore:
             ).fetchall()
         return [SavedScenarioRecord(**dict(row)) for row in rows]
 
+    def get_saved_scenario(self, scenario_id: str) -> SavedScenarioRecord:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM saved_scenarios WHERE scenario_id = ?",
+                (scenario_id,),
+            ).fetchone()
+        if row is None:
+            raise KeyError(f"Saved scenario not found: {scenario_id}")
+        return SavedScenarioRecord(**dict(row))
+
     def create_baseline(self, collection_id: str, run_id: str, label: str) -> BaselineRecord:
         record = BaselineRecord(
             baseline_id=self._new_id("base"),
@@ -185,9 +205,11 @@ class OperatorStore:
 
     def get_collection_summary(self, collection_id: str) -> dict:
         collection = self.get_collection(collection_id)
+        workspace = self.get_workspace(collection.workspace_id)
         scenarios = self.list_saved_scenarios(collection_id)
         baselines = self.list_baselines(collection_id)
         return {
+            "workspace": workspace.model_dump(),
             "collection": collection.model_dump(),
             "scenario_count": len(scenarios),
             "baseline_count": len(baselines),

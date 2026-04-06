@@ -47,6 +47,15 @@ def build_mcp_server() -> "FastMCP":
         return store.get_trace_summary(run_id)
 
     @mcp.tool()
+    def run_collection(collection_id: str, scenarios: int | None = None, chaos_mode: str | None = None) -> dict:
+        run = orchestrator.run_collection(
+            collection_id,
+            scenarios=scenarios,
+            chaos_mode=chaos_mode,
+        )
+        return run.model_dump()
+
+    @mcp.tool()
     def create_workspace(name: str, description: str = "") -> dict:
         return operator_store.create_workspace(name, description).model_dump()
 
@@ -65,6 +74,13 @@ def build_mcp_server() -> "FastMCP":
     @mcp.tool()
     def inspect_collection(collection_id: str) -> dict:
         return operator_store.get_collection_summary(collection_id)
+
+    @mcp.tool()
+    def compare_collection_baseline(collection_id: str, run_id: str) -> dict:
+        baselines = operator_store.list_baselines(collection_id)
+        if not baselines:
+            raise ValueError(f"No baselines found for collection: {collection_id}")
+        return store.compare_runs(baselines[0].run_id, run_id).model_dump()
 
     @mcp.resource("openlvm://runs/{run_id}")
     def get_run_resource(run_id: str) -> str:

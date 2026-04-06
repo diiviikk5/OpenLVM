@@ -8,7 +8,7 @@ import uuid
 from pathlib import Path
 from typing import Optional
 
-from .models import EvalRun, RunDiff
+from .models import EvalRun, RunDiff, ScenarioDiff
 
 
 class EvalStore:
@@ -119,6 +119,7 @@ class EvalStore:
         candidate_failed = candidate.summary.get("failed", 0)
         baseline_score = self._average_score(baseline)
         candidate_score = self._average_score(candidate)
+        scenario_diffs = self._build_scenario_diffs(baseline, candidate)
         return RunDiff(
             baseline_run_id=baseline.run_id,
             candidate_run_id=candidate.run_id,
@@ -129,6 +130,10 @@ class EvalStore:
                 - baseline.summary.get("warnings", 0),
             },
             score_delta=round(candidate_score - baseline_score, 4),
+            baseline_average_score=round(baseline_score, 4),
+            candidate_average_score=round(candidate_score, 4),
+            scenario_diffs=scenario_diffs,
+            trace_delta=self._build_trace_delta(baseline, candidate),
         )
 
     def get_trace_summary(self, run_id: str = "latest") -> dict:
@@ -152,3 +157,76 @@ class EvalStore:
         if not run.results:
             return 0.0
         return sum(result.score for result in run.results) / len(run.results)
+
+    @staticmethod
+    def _build_scenario_diffs(baseline: EvalRun, candidate: EvalRun) -> list[ScenarioDiff]:
+        baseline_rollups = EvalStore._scenario_rollups(baseline)
+        candidate_rollups = EvalStore._scenario_rollups(candidate)
+        scenario_names = sorted(set(baseline_rollups) | set(candidate_rollups))
+        diffs: list[ScenarioDiff] = []
+        for name in scenario_names:
+            base = baseline_rollups.get(name, {})
+            cand = candidate_rollups.get(name, {})
+            base_score = round(base.get("average_score", 0.0), 4)
+            cand_score = round(cand.get("average_score", 0.0), 4)
+            diffs.append(
+                ScenarioDiff(
+                    name=name,
+                    baseline_status=base.get("status", "missing"),
+                    candidate_status=cand.get("status", "missing"),
+                    baseline_score=base_score,
+                    candidate_score=cand_score,
+                    score_delta=round(cand_score - base_score, 4),
+                    baseline_delay_ms=int(base.get("average_delay_ms", 0)),
+                    candidate_delay_ms=int(cand.get("average_delay_ms", 0)),
+                    warning_delta=int(cand.get("warning_count", 0) - base.get("warning_count", 0)),
+                )
+            )
+        return diffs
+
+    @staticmethod
+    def _scenario_rollups(run: EvalRun) -> dict[str, dict]:
+        rollups: dict[str, dict] = {}
+        for result in run.results:
+            bucket = rollups.setdefault(
+                result.name,
+                {
+                    "count": 0,
+                    "score_total": 0.0,
+                    "delay_total": 0,
+                    "warning_count": 0,
+                    "status": "passed",
+                },
+            )
+            bucket["count"] += 1
+            bucket["score_total"] += result.score
+            bucket["delay_total"] += result.network_delay_ms
+            bucket["warning_count"] += len(result.warnings)
+            if result.status != "passed":
+                bucket["status"] = result.status
+
+        for bucket in rollups.values():
+            count = max(bucket["count"], 1)
+            bucket["average_score"] = bucket["score_total"] / count
+            bucket["average_delay_ms"] = round(bucket["delay_total"] / count)
+        return rollups
+
+    @staticmethod
+    def _build_trace_delta(baseline: EvalRun, candidate: EvalRun) -> dict:
+        baseline_traces = baseline.metadata.get("traces", [])
+        candidate_traces = candidate.metadata.get("traces", [])
+        baseline_targets = set(baseline.metadata.get("chaos_targets", []))
+        candidate_targets = set(candidate.metadata.get("chaos_targets", []))
+        return {
+            "baseline_trace_count": len(baseline_traces),
+            "candidate_trace_count": len(candidate_traces),
+            "trace_count_delta": len(candidate_traces) - len(baseline_traces),
+            "warning_event_delta": candidate.summary.get("warning_events", 0)
+            - baseline.summary.get("warning_events", 0),
+            "runtime_backend_changed": baseline.metadata.get("runtime_backend")
+            != candidate.metadata.get("runtime_backend"),
+            "baseline_runtime_backend": baseline.metadata.get("runtime_backend", "unknown"),
+            "candidate_runtime_backend": candidate.metadata.get("runtime_backend", "unknown"),
+            "chaos_targets_added": sorted(candidate_targets - baseline_targets),
+            "chaos_targets_removed": sorted(baseline_targets - candidate_targets),
+        }

@@ -10,7 +10,8 @@ from typing import Optional
 from .config import load_config
 from .eval_store import EvalStore
 from .integrations import DeepEvalAdapter, OpenLLMetryAdapter, PromptfooAdapter
-from .models import AgentRunSummary, EvalRun, ScenarioRunResult, TestSuiteConfig
+from .models import AgentRunSummary, EvalRun, ScenarioConfig, ScenarioRunResult, TestSuiteConfig
+from .operator_store import OperatorStore
 from .runtime import BaseRuntime, create_runtime
 
 
@@ -26,12 +27,14 @@ class TestOrchestrator:
         deepeval_adapter: Optional[DeepEvalAdapter] = None,
         promptfoo_adapter: Optional[PromptfooAdapter] = None,
         openllmetry_adapter: Optional[OpenLLMetryAdapter] = None,
+        operator_store: Optional[OperatorStore] = None,
     ):
         self.runtime = runtime or create_runtime()
         self.eval_store = eval_store or EvalStore()
         self.deepeval_adapter = deepeval_adapter or DeepEvalAdapter()
         self.promptfoo_adapter = promptfoo_adapter or PromptfooAdapter()
         self.openllmetry_adapter = openllmetry_adapter or OpenLLMetryAdapter()
+        self.operator_store = operator_store or OperatorStore()
 
     def run_test_suite(
         self,
@@ -134,6 +137,48 @@ class TestOrchestrator:
                 "chaos_targets": list(active_chaos_targets.keys()),
             },
         )
+        self.eval_store.store_run(run)
+        return run
+
+    def run_collection(
+        self,
+        collection_id: str,
+        *,
+        scenarios: Optional[int] = None,
+        chaos_mode: Optional[str] = None,
+    ) -> EvalRun:
+        collection_summary = self.operator_store.get_collection_summary(collection_id)
+        saved_scenarios = collection_summary["scenarios"]
+        if not saved_scenarios:
+            raise ValueError(f"Collection has no saved scenarios: {collection_id}")
+
+        config_paths = {entry["config_path"] for entry in saved_scenarios}
+        if len(config_paths) != 1:
+            raise ValueError(
+                "Collection run requires all saved scenarios to share the same config path"
+            )
+
+        config_path = Path(next(iter(config_paths)))
+        base_config = load_config(config_path)
+        config = base_config.model_copy(deep=True)
+        config.name = f"{base_config.name}:{collection_summary['collection']['name']}"
+        config.scenarios = {
+            entry["name"]: ScenarioConfig(input=entry["input_text"])
+            for entry in reversed(saved_scenarios)
+        }
+
+        run = self.run_test_suite(
+            config,
+            scenarios=scenarios or len(saved_scenarios),
+            chaos_mode=chaos_mode,
+            config_path=config_path,
+        )
+        run.metadata["collection"] = {
+            "collection_id": collection_id,
+            "workspace_id": collection_summary["workspace"]["workspace_id"],
+            "collection_name": collection_summary["collection"]["name"],
+            "scenario_ids": [entry["scenario_id"] for entry in saved_scenarios],
+        }
         self.eval_store.store_run(run)
         return run
 

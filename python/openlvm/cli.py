@@ -5,6 +5,7 @@ import os
 import shutil
 import time
 from pathlib import Path
+from typing import Optional
 
 import typer
 from rich.console import Console
@@ -20,6 +21,57 @@ from .runtime import OpenLVMError, OpenLVMRuntime, create_runtime
 app = typer.Typer(help="OpenLVM - Performance-first Agent-Native VM Runtime")
 console = Console()
 DEFAULT_EXAMPLE_CONFIG = Path(__file__).resolve().parents[2] / "examples" / "swarm.yaml"
+
+
+def _print_run_diff(diff) -> None:
+    console.print(
+        f"[bold cyan]Comparison[/bold cyan] {diff.baseline_run_id} -> {diff.candidate_run_id}\n"
+        f"Passed delta: {diff.summary_delta.get('passed', 0)}  "
+        f"Warnings delta: {diff.summary_delta.get('warnings', 0)}  "
+        f"Failed delta: {diff.summary_delta.get('failed', 0)}  "
+        f"Score delta: {diff.score_delta:+.2f}"
+    )
+    console.print(
+        f"Average score: {diff.baseline_average_score:.2f} -> {diff.candidate_average_score:.2f}"
+    )
+
+    if diff.scenario_diffs:
+        table = Table(title="Scenario Diffs")
+        table.add_column("Scenario", style="cyan")
+        table.add_column("Status", style="green")
+        table.add_column("Score", justify="right", style="magenta")
+        table.add_column("Delay", justify="right", style="yellow")
+        table.add_column("Warn Δ", justify="right", style="red")
+        for scenario in diff.scenario_diffs[:12]:
+            table.add_row(
+                scenario.name,
+                f"{scenario.baseline_status} -> {scenario.candidate_status}",
+                f"{scenario.baseline_score:.2f} -> {scenario.candidate_score:.2f}",
+                f"{scenario.baseline_delay_ms}ms -> {scenario.candidate_delay_ms}ms",
+                f"{scenario.warning_delta:+d}",
+            )
+        console.print(table)
+        if len(diff.scenario_diffs) > 12:
+            console.print(f"... and [cyan]{len(diff.scenario_diffs) - 12}[/cyan] more scenario diffs.")
+
+    trace_delta = diff.trace_delta or {}
+    console.print(
+        f"Trace delta: {trace_delta.get('baseline_trace_count', 0)} -> "
+        f"{trace_delta.get('candidate_trace_count', 0)}  "
+        f"Warning events delta: {trace_delta.get('warning_event_delta', 0):+d}"
+    )
+    if trace_delta.get("runtime_backend_changed"):
+        console.print(
+            f"Runtime backend changed: {trace_delta.get('baseline_runtime_backend')} -> "
+            f"{trace_delta.get('candidate_runtime_backend')}"
+        )
+    if trace_delta.get("chaos_targets_added") or trace_delta.get("chaos_targets_removed"):
+        console.print(
+            f"Chaos targets added: {', '.join(trace_delta.get('chaos_targets_added', [])) or 'none'}"
+        )
+        console.print(
+            f"Chaos targets removed: {', '.join(trace_delta.get('chaos_targets_removed', [])) or 'none'}"
+        )
 
 
 @app.command()
@@ -220,13 +272,7 @@ def compare_runs(
 ):
     """Compare two stored runs."""
     diff = EvalStore().compare_runs(run_a, run_b)
-    console.print(
-        f"[bold cyan]Comparison[/bold cyan] {diff.baseline_run_id} -> {diff.candidate_run_id}\n"
-        f"Passed delta: {diff.summary_delta.get('passed', 0)}  "
-        f"Warnings delta: {diff.summary_delta.get('warnings', 0)}  "
-        f"Failed delta: {diff.summary_delta.get('failed', 0)}  "
-        f"Score delta: {diff.score_delta:+.2f}"
-    )
+    _print_run_diff(diff)
 
 
 @app.command("trace-summary")
@@ -297,7 +343,7 @@ def collection_inspect(collection_id: str = typer.Argument(..., help="Collection
     collection = summary["collection"]
     console.print(
         f"[bold cyan]{collection['collection_id']}[/bold cyan]  {collection['name']}\n"
-        f"Workspace: {collection['workspace_id']}\n"
+        f"Workspace: {summary['workspace']['workspace_id']} ({summary['workspace']['name']})\n"
         f"Scenarios: {summary['scenario_count']}  Baselines: {summary['baseline_count']}"
     )
 
@@ -318,6 +364,30 @@ def collection_inspect(collection_id: str = typer.Argument(..., help="Collection
         for row in summary["baselines"]:
             baseline_table.add_row(row["baseline_id"], row["run_id"], row["label"])
         console.print(baseline_table)
+
+
+@app.command("collection-run")
+def collection_run(
+    collection_id: str = typer.Argument(..., help="Collection id"),
+    scenarios: Optional[int] = typer.Option(None, "--scenarios", "-n", help="Number of scenario forks to execute"),
+    chaos_mode: str = typer.Option(None, "--chaos", "-c", help="Specific chaos mode to apply, or 'all'"),
+):
+    """Run a saved collection as a test suite."""
+    run = TestOrchestrator().run_collection(
+        collection_id,
+        scenarios=scenarios,
+        chaos_mode=chaos_mode,
+    )
+    collection_meta = run.metadata.get("collection", {})
+    console.print(
+        f"[bold green]Collection run complete:[/bold green] "
+        f"{collection_meta.get('collection_name', collection_id)} ({run.run_id})"
+    )
+    console.print(
+        f"Workspace: {collection_meta.get('workspace_id', 'unknown')}  "
+        f"Scenarios: {run.scenarios_executed}  Chaos: {run.chaos_mode or 'off'}"
+    )
+    console.print(f"Passed: {run.summary.get('passed', 0)}  Warnings: {run.summary.get('warnings', 0)}")
 
 
 @app.command("scenario-save")
@@ -385,12 +455,9 @@ def baseline_compare(
     console.print(
         f"[bold cyan]Baseline Compare[/bold cyan] {baseline.label}\n"
         f"Baseline run: {baseline.run_id}\n"
-        f"Candidate run: {run_id}\n"
-        f"Passed delta: {diff.summary_delta.get('passed', 0)}  "
-        f"Warnings delta: {diff.summary_delta.get('warnings', 0)}  "
-        f"Failed delta: {diff.summary_delta.get('failed', 0)}  "
-        f"Score delta: {diff.score_delta:+.2f}"
+        f"Candidate run: {run_id}"
     )
+    _print_run_diff(diff)
 
 
 @app.command("mcp-serve")

@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from openlvm.eval_store import EvalStore
+from openlvm.operator_store import OperatorStore
 from openlvm.orchestrator import TestOrchestrator
 from openlvm.runtime import SimulatedOpenLVMRuntime
 
@@ -64,3 +65,26 @@ def test_orchestrator_records_targeted_chaos_effects(tmp_path):
     assert result.chaos_effects["executor"]["type"] == "network_delay"
     assert result.chaos_effects["executor"]["delay_ms"] >= 0
     assert run.metadata["chaos_targets"] == ["executor"]
+
+
+def test_orchestrator_runs_saved_collection(tmp_path):
+    eval_store = EvalStore(tmp_path / "eval_store.db")
+    operator_store = OperatorStore(tmp_path / "operator_store.db")
+    orchestrator = TestOrchestrator(
+        runtime=SimulatedOpenLVMRuntime(),
+        eval_store=eval_store,
+        operator_store=operator_store,
+    )
+    config_path = Path(__file__).resolve().parents[2] / "examples" / "swarm.yaml"
+
+    workspace = operator_store.create_workspace("Team A")
+    collection = operator_store.create_collection(workspace.workspace_id, "Support")
+    operator_store.save_scenario(collection.collection_id, "cancel-flow", str(config_path), "Cancel my plan")
+    operator_store.save_scenario(collection.collection_id, "refund-flow", str(config_path), "Refund last invoice")
+
+    run = orchestrator.run_collection(collection.collection_id)
+
+    assert run.scenarios_executed == 2
+    assert run.metadata["collection"]["collection_id"] == collection.collection_id
+    assert run.metadata["collection"]["collection_name"] == "Support"
+    assert eval_store.get_run(run.run_id).run_id == run.run_id

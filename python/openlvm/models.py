@@ -1,8 +1,9 @@
 """Pydantic data models for configuration and results."""
 
-from typing import List, Dict, Any, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
+
 
 class CapabilityConfig(BaseModel):
     network_outbound: bool = False
@@ -72,7 +73,6 @@ class TestSuiteConfig(BaseModel):
                 mask |= cap_map[cap]
         return mask
 
-
 class ScenarioRunResult(BaseModel):
     name: str
     fork_id: int
@@ -109,11 +109,27 @@ class EvalRun(BaseModel):
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
+class ScenarioDiff(BaseModel):
+    name: str
+    baseline_status: str
+    candidate_status: str
+    baseline_score: float
+    candidate_score: float
+    score_delta: float
+    baseline_delay_ms: int = 0
+    candidate_delay_ms: int = 0
+    warning_delta: int = 0
+
+
 class RunDiff(BaseModel):
     baseline_run_id: str
     candidate_run_id: str
     summary_delta: Dict[str, int] = Field(default_factory=dict)
     score_delta: float = 0.0
+    baseline_average_score: float = 0.0
+    candidate_average_score: float = 0.0
+    scenario_diffs: List[ScenarioDiff] = Field(default_factory=list)
+    trace_delta: Dict[str, Any] = Field(default_factory=dict)
 
 
 class WorkspaceRecord(BaseModel):

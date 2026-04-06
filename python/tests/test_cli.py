@@ -4,7 +4,7 @@ from typer.testing import CliRunner
 
 from openlvm.cli import app
 from openlvm.eval_store import EvalStore
-from openlvm.models import EvalRun
+from openlvm.models import EvalRun, ScenarioRunResult
 from openlvm.operator_store import OperatorStore
 
 
@@ -88,7 +88,17 @@ def test_collection_inspect_and_baseline_compare(tmp_path, monkeypatch):
             completed_at="2026-04-04T00:00:01+00:00",
             scenarios_requested=1,
             scenarios_executed=1,
-            summary={"passed": 1, "warnings": 0, "failed": 0},
+            summary={"passed": 1, "warnings": 0, "failed": 0, "warning_events": 0},
+            results=[
+                ScenarioRunResult(
+                    name="cancel-flow",
+                    fork_id=1,
+                    input="Help me cancel",
+                    status="passed",
+                    score=0.95,
+                )
+            ],
+            metadata={"traces": [{}], "runtime_backend": "simulated", "chaos_targets": []},
         )
     )
     eval_store.store_run(
@@ -101,7 +111,19 @@ def test_collection_inspect_and_baseline_compare(tmp_path, monkeypatch):
             completed_at="2026-04-04T00:00:03+00:00",
             scenarios_requested=1,
             scenarios_executed=1,
-            summary={"passed": 0, "warnings": 1, "failed": 0},
+            summary={"passed": 0, "warnings": 1, "failed": 0, "warning_events": 1},
+            results=[
+                ScenarioRunResult(
+                    name="cancel-flow",
+                    fork_id=2,
+                    input="Help me cancel",
+                    status="warning",
+                    score=0.70,
+                    network_delay_ms=300,
+                    warnings=["network delay injected on executor: 300ms"],
+                )
+            ],
+            metadata={"traces": [{}, {}], "runtime_backend": "zig", "chaos_targets": ["executor"]},
         )
     )
     store.create_baseline(collection.collection_id, "run-a", "stable")
@@ -113,3 +135,47 @@ def test_collection_inspect_and_baseline_compare(tmp_path, monkeypatch):
     compare_result = runner.invoke(app, ["baseline-compare", collection.collection_id, "run-b"])
     assert compare_result.exit_code == 0
     assert "Baseline Compare" in compare_result.stdout
+    assert "Scenario Diffs" in compare_result.stdout
+    assert "Runtime backend changed" in compare_result.stdout
+
+
+def test_collection_run_command(tmp_path, monkeypatch):
+    store = OperatorStore(tmp_path / "operator_store.db")
+    eval_store = EvalStore(tmp_path / "eval_store.db")
+    monkeypatch.setattr("openlvm.cli.OperatorStore", lambda: store)
+
+    workspace = store.create_workspace("Team A")
+    collection = store.create_collection(workspace.workspace_id, "Support")
+
+    config_path = Path(__file__).resolve().parents[2] / "examples" / "swarm.yaml"
+    store.save_scenario(collection.collection_id, "cancel-flow", str(config_path), "Cancel my plan")
+
+    class DummyOrchestrator:
+        def run_collection(self, collection_id, scenarios=None, chaos_mode=None):
+            run = EvalRun(
+                run_id="run-collection",
+                suite_name="demo:Support",
+                suite_version="1.0",
+                config_path=str(config_path),
+                started_at="2026-04-04T00:00:00+00:00",
+                completed_at="2026-04-04T00:00:01+00:00",
+                scenarios_requested=scenarios or 1,
+                scenarios_executed=1,
+                chaos_mode=chaos_mode,
+                summary={"passed": 1, "warnings": 0, "failed": 0},
+                metadata={
+                    "collection": {
+                        "collection_id": collection_id,
+                        "workspace_id": workspace.workspace_id,
+                        "collection_name": "Support",
+                    }
+                },
+            )
+            eval_store.store_run(run)
+            return run
+
+    monkeypatch.setattr("openlvm.cli.TestOrchestrator", lambda: DummyOrchestrator())
+    result = runner.invoke(app, ["collection-run", collection.collection_id, "--scenarios", "1"])
+    assert result.exit_code == 0
+    assert "Collection run complete" in result.stdout
+    assert "Support" in result.stdout
