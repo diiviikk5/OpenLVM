@@ -18,6 +18,10 @@ jobs:
         with:
           version: 0.15.2
 
+      - name: Clean build artifacts
+        working-directory: core
+        run: rm -rf zig-out .zig-cache
+
       - name: Build core
         working-directory: core
         run: zig build
@@ -34,6 +38,7 @@ jobs:
     runs-on: windows-latest
     env:
       OPENLVM_RUNTIME: zig
+      OPENLVM_REQUIRE_PARENT_API: "1"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -47,6 +52,12 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
+      - name: Clean build artifacts
+        working-directory: core
+        run: |
+          if (Test-Path zig-out) { Remove-Item -LiteralPath zig-out -Recurse -Force }
+          if (Test-Path .zig-cache) { Remove-Item -LiteralPath .zig-cache -Recurse -Force }
 
       - name: Build core
         working-directory: core

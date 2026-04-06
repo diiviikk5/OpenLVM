@@ -1,4 +1,5 @@
 from pathlib import Path
+import os
 
 import pytest
 from typer.testing import CliRunner
@@ -27,7 +28,10 @@ def test_cli_test_runs_with_zig_backend(monkeypatch):
 def test_zig_runtime_fork_inherits_parent_and_chaos():
     runtime = OpenLVMRuntime()
     try:
-        if not getattr(runtime._lib, "_openlvm_has_parent_api", False):  # pragma: no cover - compat with old local builds
+        has_parent_api = getattr(runtime._lib, "_openlvm_has_parent_api", False)
+        if not has_parent_api and (os.getenv("OPENLVM_REQUIRE_PARENT_API") or "").strip() == "1":
+            raise AssertionError("Zig runtime is missing openlvm_agent_parent export in required mode")
+        if not has_parent_api:  # pragma: no cover - compat with old local builds
             pytest.skip("Built runtime is older than parent-introspection API")
         parent_id = runtime.register_agent(0)
         runtime.chaos_add_network_delay(parent_id, 1.0, 300)
