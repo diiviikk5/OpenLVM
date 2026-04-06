@@ -170,6 +170,47 @@ class OperatorStore:
             raise KeyError(f"Saved scenario not found: {scenario_id}")
         return SavedScenarioRecord(**dict(row))
 
+    def update_saved_scenario(
+        self,
+        scenario_id: str,
+        *,
+        name: Optional[str] = None,
+        config_path: Optional[str] = None,
+        input_text: Optional[str] = None,
+    ) -> SavedScenarioRecord:
+        scenario = self.get_saved_scenario(scenario_id)
+        updated = SavedScenarioRecord(
+            scenario_id=scenario.scenario_id,
+            collection_id=scenario.collection_id,
+            name=name if name is not None else scenario.name,
+            config_path=config_path if config_path is not None else scenario.config_path,
+            input_text=input_text if input_text is not None else scenario.input_text,
+            created_at=scenario.created_at,
+        )
+        with self._connect() as conn:
+            conn.execute(
+                """
+                UPDATE saved_scenarios
+                SET name = ?, config_path = ?, input_text = ?
+                WHERE scenario_id = ?
+                """,
+                (
+                    updated.name,
+                    updated.config_path,
+                    updated.input_text,
+                    scenario_id,
+                ),
+            )
+        return updated
+
+    def delete_saved_scenario(self, scenario_id: str) -> bool:
+        with self._connect() as conn:
+            result = conn.execute(
+                "DELETE FROM saved_scenarios WHERE scenario_id = ?",
+                (scenario_id,),
+            )
+        return result.rowcount > 0
+
     def create_baseline(self, collection_id: str, run_id: str, label: str) -> BaselineRecord:
         record = BaselineRecord(
             baseline_id=self._new_id("base"),

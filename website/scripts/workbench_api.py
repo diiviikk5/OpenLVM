@@ -31,11 +31,16 @@ def _overview() -> dict:
         col["collection_id"]: [base.model_dump() for base in op_store.list_baselines(col["collection_id"])]
         for col in collections
     }
+    scenarios_by_collection = {
+        col["collection_id"]: [scn.model_dump() for scn in op_store.list_saved_scenarios(col["collection_id"])]
+        for col in collections
+    }
     recent_runs = [run.model_dump() for run in eval_store.list_runs(limit=20)]
     return {
         "workspaces": workspaces,
         "collections": collections,
         "baselines_by_collection": baselines_by_collection,
+        "scenarios_by_collection": scenarios_by_collection,
         "recent_runs": recent_runs,
     }
 
@@ -66,12 +71,25 @@ def _compare_baseline(args: list[str]) -> dict:
 
     collection_id = args[0]
     run_id = args[1]
+    baseline_id_csv = args[2] if len(args) > 2 else ""
     op_store = OperatorStore()
     baselines = op_store.list_baselines(collection_id)
     if not baselines:
         raise ValueError(f"No baselines found for collection: {collection_id}")
-    diff = EvalStore().compare_runs(baselines[0].run_id, run_id)
-    return diff.model_dump()
+
+    selected_ids = {token for token in baseline_id_csv.split(",") if token}
+    selected_baselines = [b for b in baselines if not selected_ids or b.baseline_id in selected_ids]
+    if not selected_baselines:
+        raise ValueError("No matching baselines for requested baseline_ids")
+
+    eval_store = EvalStore()
+    diffs = []
+    for baseline in selected_baselines:
+        diff = eval_store.compare_runs(baseline.run_id, run_id).model_dump()
+        diff["baseline_id"] = baseline.baseline_id
+        diff["baseline_label"] = baseline.label
+        diffs.append(diff)
+    return {"diffs": diffs, "candidate_run_id": run_id}
 
 
 def _resolve_config_path(config_path: str) -> str:
@@ -125,6 +143,42 @@ def _save_baseline(args: list[str]) -> dict:
     return OperatorStore().create_baseline(collection_id, run_id, label).model_dump()
 
 
+def _list_scenarios(args: list[str]) -> dict:
+    if not args:
+        raise ValueError("collection_id is required")
+    from openlvm.operator_store import OperatorStore
+
+    collection_id = args[0]
+    rows = OperatorStore().list_saved_scenarios(collection_id)
+    return {"scenarios": [row.model_dump() for row in rows]}
+
+
+def _update_scenario(args: list[str]) -> dict:
+    if len(args) < 4:
+        raise ValueError("scenario_id, name, config_path, input_text are required")
+    from openlvm.operator_store import OperatorStore
+
+    scenario_id = args[0]
+    name = args[1]
+    config_path = _resolve_config_path(args[2])
+    input_text = args[3]
+    return OperatorStore().update_saved_scenario(
+        scenario_id,
+        name=name,
+        config_path=config_path,
+        input_text=input_text,
+    ).model_dump()
+
+
+def _delete_scenario(args: list[str]) -> dict:
+    if not args:
+        raise ValueError("scenario_id is required")
+    from openlvm.operator_store import OperatorStore
+
+    deleted = OperatorStore().delete_saved_scenario(args[0])
+    return {"deleted": deleted}
+
+
 def _main() -> int:
     _bootstrap()
     if len(sys.argv) < 2:
@@ -149,6 +203,12 @@ def _main() -> int:
             result = _save_scenario(args)
         elif command == "save_baseline":
             result = _save_baseline(args)
+        elif command == "list_scenarios":
+            result = _list_scenarios(args)
+        elif command == "update_scenario":
+            result = _update_scenario(args)
+        elif command == "delete_scenario":
+            result = _delete_scenario(args)
         else:
             raise ValueError(f"unknown command: {command}")
         print(json.dumps(result))

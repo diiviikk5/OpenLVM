@@ -1,10 +1,12 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 
+import { contextError, contextJson, resolveApiContext } from "@/lib/api-context";
 import { runWorkbenchBridge } from "@/lib/openlvm-bridge";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(request: NextRequest) {
+  const ctx = resolveApiContext(request);
   try {
     const payload = (await request.json()) as {
       collection_id?: string;
@@ -12,7 +14,7 @@ export async function POST(request: NextRequest) {
       chaos_mode?: string;
     };
     if (!payload.collection_id) {
-      return NextResponse.json({ error: "collection_id is required" }, { status: 400 });
+      return contextError("collection_id is required", ctx, 400);
     }
     const args = [payload.collection_id];
     if (payload.scenarios) {
@@ -24,13 +26,10 @@ export async function POST(request: NextRequest) {
 
     const data = await runWorkbenchBridge("run_collection", args);
     if (typeof data === "object" && data && "error" in data) {
-      return NextResponse.json(data, { status: 500 });
+      return contextError("Collection run failed", ctx, 500, String((data as { error: string }).error));
     }
-    return NextResponse.json(data);
+    return contextJson(data, ctx);
   } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Collection run failed" },
-      { status: 500 }
-    );
+    return contextError("Collection run failed", ctx, 500, error instanceof Error ? error.message : undefined);
   }
 }

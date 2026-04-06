@@ -1,10 +1,12 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 
+import { contextError, contextJson, resolveApiContext } from "@/lib/api-context";
 import { runWorkbenchBridge } from "@/lib/openlvm-bridge";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(request: NextRequest) {
+  const ctx = resolveApiContext(request);
   try {
     const payload = (await request.json()) as {
       collection_id?: string;
@@ -12,7 +14,7 @@ export async function POST(request: NextRequest) {
       label?: string;
     };
     if (!payload.collection_id || !payload.run_id || !payload.label) {
-      return NextResponse.json({ error: "collection_id, run_id, and label are required" }, { status: 400 });
+      return contextError("collection_id, run_id, and label are required", ctx, 400);
     }
 
     const data = await runWorkbenchBridge("save_baseline", [
@@ -21,13 +23,10 @@ export async function POST(request: NextRequest) {
       payload.label,
     ]);
     if (typeof data === "object" && data && "error" in data) {
-      return NextResponse.json(data, { status: 500 });
+      return contextError("Baseline save failed", ctx, 500, String((data as { error: string }).error));
     }
-    return NextResponse.json(data);
+    return contextJson(data, ctx);
   } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Baseline save failed" },
-      { status: 500 }
-    );
+    return contextError("Baseline save failed", ctx, 500, error instanceof Error ? error.message : undefined);
   }
 }
