@@ -62,6 +62,10 @@ Available API routes:
 - `GET /api/workbench/overview`
 - `POST /api/workbench/run`
 - `POST /api/workbench/compare`
+- `POST /api/workbench/workspace`
+- `POST /api/workbench/collection`
+- `POST /api/workbench/scenario`
+- `POST /api/workbench/baseline`
 
 Run tests:
 
