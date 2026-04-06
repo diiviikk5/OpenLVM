@@ -21,6 +21,7 @@ export async function POST(request: NextRequest) {
       payload.collection_id,
       payload.run_id,
       payload.label,
+      ctx.userId,
     ]);
     if (typeof data === "object" && data && "error" in data) {
       return contextError("Baseline save failed", ctx, 500, String((data as { error: string }).error));

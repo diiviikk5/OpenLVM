@@ -20,6 +20,7 @@ export async function POST(request: NextRequest) {
     const data = await runWorkbenchBridge("create_collection", [
       payload.workspace_id,
       payload.name,
+      ctx.userId,
       payload.description || "",
     ]);
     if (typeof data === "object" && data && "error" in data) {
@@ -28,5 +29,48 @@ export async function POST(request: NextRequest) {
     return contextJson(data, ctx);
   } catch (error) {
     return contextError("Collection creation failed", ctx, 500, error instanceof Error ? error.message : undefined);
+  }
+}
+
+export async function PATCH(request: NextRequest) {
+  const ctx = resolveApiContext(request);
+  try {
+    const payload = (await request.json()) as {
+      collection_id?: string;
+      name?: string;
+      description?: string;
+    };
+    if (!payload.collection_id) {
+      return contextError("collection_id is required", ctx, 400);
+    }
+    const data = await runWorkbenchBridge("update_collection", [
+      payload.collection_id,
+      ctx.userId,
+      payload.name || "",
+      payload.description || "",
+    ]);
+    if (typeof data === "object" && data && "error" in data) {
+      return contextError("Collection update failed", ctx, 500, String((data as { error: string }).error));
+    }
+    return contextJson(data, ctx);
+  } catch (error) {
+    return contextError("Collection update failed", ctx, 500, error instanceof Error ? error.message : undefined);
+  }
+}
+
+export async function DELETE(request: NextRequest) {
+  const ctx = resolveApiContext(request);
+  try {
+    const payload = (await request.json()) as { collection_id?: string };
+    if (!payload.collection_id) {
+      return contextError("collection_id is required", ctx, 400);
+    }
+    const data = await runWorkbenchBridge("delete_collection", [payload.collection_id, ctx.userId]);
+    if (typeof data === "object" && data && "error" in data) {
+      return contextError("Collection delete failed", ctx, 500, String((data as { error: string }).error));
+    }
+    return contextJson(data, ctx);
+  } catch (error) {
+    return contextError("Collection delete failed", ctx, 500, error instanceof Error ? error.message : undefined);
   }
 }

@@ -42,6 +42,7 @@ def _overview() -> dict:
         "baselines_by_collection": baselines_by_collection,
         "scenarios_by_collection": scenarios_by_collection,
         "recent_runs": recent_runs,
+        "audit_events": op_store.list_audit_events(limit=100),
     }
 
 
@@ -100,47 +101,113 @@ def _resolve_config_path(config_path: str) -> str:
 
 
 def _create_workspace(args: list[str]) -> dict:
-    if not args:
-        raise ValueError("workspace name is required")
+    if len(args) < 2:
+        raise ValueError("workspace name and actor_id are required")
     from openlvm.operator_store import OperatorStore
 
     name = args[0]
-    description = args[1] if len(args) > 1 else ""
-    return OperatorStore().create_workspace(name, description).model_dump()
+    actor_id = args[1]
+    description = args[2] if len(args) > 2 else ""
+    return OperatorStore().create_workspace(name, description, actor_id=actor_id).model_dump()
+
+
+def _update_workspace(args: list[str]) -> dict:
+    if len(args) < 2:
+        raise ValueError("workspace_id and actor_id are required")
+    from openlvm.operator_store import OperatorStore
+
+    workspace_id = args[0]
+    actor_id = args[1]
+    name = args[2] if len(args) > 2 and args[2] else None
+    description = args[3] if len(args) > 3 and args[3] else None
+    return OperatorStore().update_workspace(
+        workspace_id,
+        name=name,
+        description=description,
+        actor_id=actor_id,
+    ).model_dump()
+
+
+def _delete_workspace(args: list[str]) -> dict:
+    if len(args) < 2:
+        raise ValueError("workspace_id and actor_id are required")
+    from openlvm.operator_store import OperatorStore
+
+    workspace_id = args[0]
+    actor_id = args[1]
+    deleted = OperatorStore().delete_workspace(workspace_id, actor_id=actor_id)
+    return {"deleted": deleted}
 
 
 def _create_collection(args: list[str]) -> dict:
-    if len(args) < 2:
-        raise ValueError("workspace_id and collection name are required")
+    if len(args) < 3:
+        raise ValueError("workspace_id, collection name, and actor_id are required")
     from openlvm.operator_store import OperatorStore
 
     workspace_id = args[0]
     name = args[1]
-    description = args[2] if len(args) > 2 else ""
-    return OperatorStore().create_collection(workspace_id, name, description).model_dump()
+    actor_id = args[2]
+    description = args[3] if len(args) > 3 else ""
+    return OperatorStore().create_collection(workspace_id, name, description, actor_id=actor_id).model_dump()
+
+
+def _update_collection(args: list[str]) -> dict:
+    if len(args) < 2:
+        raise ValueError("collection_id and actor_id are required")
+    from openlvm.operator_store import OperatorStore
+
+    collection_id = args[0]
+    actor_id = args[1]
+    name = args[2] if len(args) > 2 and args[2] else None
+    description = args[3] if len(args) > 3 and args[3] else None
+    return OperatorStore().update_collection(
+        collection_id,
+        name=name,
+        description=description,
+        actor_id=actor_id,
+    ).model_dump()
+
+
+def _delete_collection(args: list[str]) -> dict:
+    if len(args) < 2:
+        raise ValueError("collection_id and actor_id are required")
+    from openlvm.operator_store import OperatorStore
+
+    collection_id = args[0]
+    actor_id = args[1]
+    deleted = OperatorStore().delete_collection(collection_id, actor_id=actor_id)
+    return {"deleted": deleted}
 
 
 def _save_scenario(args: list[str]) -> dict:
-    if len(args) < 4:
-        raise ValueError("collection_id, name, config_path, input_text are required")
+    if len(args) < 5:
+        raise ValueError("collection_id, name, config_path, input_text, actor_id are required")
     from openlvm.operator_store import OperatorStore
 
     collection_id = args[0]
     name = args[1]
     config_path = _resolve_config_path(args[2])
     input_text = args[3]
-    return OperatorStore().save_scenario(collection_id, name, config_path, input_text).model_dump()
+    actor_id = args[4]
+    return OperatorStore().save_scenario(
+        collection_id,
+        name,
+        config_path,
+        input_text,
+        actor_id=actor_id,
+    ).model_dump()
 
 
 def _save_baseline(args: list[str]) -> dict:
-    if len(args) < 3:
-        raise ValueError("collection_id, run_id, label are required")
+    if len(args) < 4:
+        raise ValueError("collection_id, run_id, label, actor_id are required")
     from openlvm.operator_store import OperatorStore
 
     collection_id = args[0]
     run_id = args[1]
     label = args[2]
-    return OperatorStore().create_baseline(collection_id, run_id, label).model_dump()
+    actor_id = args[3]
+    return OperatorStore().create_baseline(collection_id, run_id, label, actor_id=actor_id).model_dump()
 
 
 def _list_scenarios(args: list[str]) -> dict:
@@ -154,28 +221,30 @@ def _list_scenarios(args: list[str]) -> dict:
 
 
 def _update_scenario(args: list[str]) -> dict:
-    if len(args) < 4:
-        raise ValueError("scenario_id, name, config_path, input_text are required")
+    if len(args) < 5:
+        raise ValueError("scenario_id, name, config_path, input_text, actor_id are required")
     from openlvm.operator_store import OperatorStore
 
     scenario_id = args[0]
     name = args[1]
     config_path = _resolve_config_path(args[2])
     input_text = args[3]
+    actor_id = args[4]
     return OperatorStore().update_saved_scenario(
         scenario_id,
         name=name,
         config_path=config_path,
         input_text=input_text,
+        actor_id=actor_id,
     ).model_dump()
 
 
 def _delete_scenario(args: list[str]) -> dict:
-    if not args:
-        raise ValueError("scenario_id is required")
+    if len(args) < 2:
+        raise ValueError("scenario_id and actor_id are required")
     from openlvm.operator_store import OperatorStore
 
-    deleted = OperatorStore().delete_saved_scenario(args[0])
+    deleted = OperatorStore().delete_saved_scenario(args[0], actor_id=args[1])
     return {"deleted": deleted}
 
 
@@ -197,8 +266,16 @@ def _main() -> int:
             result = _compare_baseline(args)
         elif command == "create_workspace":
             result = _create_workspace(args)
+        elif command == "update_workspace":
+            result = _update_workspace(args)
+        elif command == "delete_workspace":
+            result = _delete_workspace(args)
         elif command == "create_collection":
             result = _create_collection(args)
+        elif command == "update_collection":
+            result = _update_collection(args)
+        elif command == "delete_collection":
+            result = _delete_collection(args)
         elif command == "save_scenario":
             result = _save_scenario(args)
         elif command == "save_baseline":

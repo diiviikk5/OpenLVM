@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 import uuid
 from datetime import datetime, timezone
@@ -73,8 +74,21 @@ class OperatorStore:
                 )
                 """
             )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS audit_events (
+                    event_id TEXT PRIMARY KEY,
+                    actor_id TEXT NOT NULL,
+                    action TEXT NOT NULL,
+                    entity_type TEXT NOT NULL,
+                    entity_id TEXT NOT NULL,
+                    details_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                )
+                """
+            )
 
-    def create_workspace(self, name: str, description: str = "") -> WorkspaceRecord:
+    def create_workspace(self, name: str, description: str = "", actor_id: str = "system") -> WorkspaceRecord:
         record = WorkspaceRecord(
             workspace_id=self._new_id("ws"),
             name=name,
@@ -85,6 +99,14 @@ class OperatorStore:
             conn.execute(
                 "INSERT INTO workspaces (workspace_id, name, description, created_at) VALUES (?, ?, ?, ?)",
                 (record.workspace_id, record.name, record.description, record.created_at),
+            )
+            self._insert_audit_event(
+                conn,
+                actor_id=actor_id,
+                action="workspace.create",
+                entity_type="workspace",
+                entity_id=record.workspace_id,
+                details={"name": record.name},
             )
         return record
 
@@ -103,7 +125,75 @@ class OperatorStore:
             raise KeyError(f"Workspace not found: {workspace_id}")
         return WorkspaceRecord(**dict(row))
 
-    def create_collection(self, workspace_id: str, name: str, description: str = "") -> CollectionRecord:
+    def update_workspace(
+        self,
+        workspace_id: str,
+        *,
+        name: Optional[str] = None,
+        description: Optional[str] = None,
+        actor_id: str = "system",
+    ) -> WorkspaceRecord:
+        workspace = self.get_workspace(workspace_id)
+        updated = WorkspaceRecord(
+            workspace_id=workspace.workspace_id,
+            name=name if name is not None else workspace.name,
+            description=description if description is not None else workspace.description,
+            created_at=workspace.created_at,
+        )
+        with self._connect() as conn:
+            conn.execute(
+                """
+                UPDATE workspaces
+                SET name = ?, description = ?
+                WHERE workspace_id = ?
+                """,
+                (updated.name, updated.description, workspace_id),
+            )
+            self._insert_audit_event(
+                conn,
+                actor_id=actor_id,
+                action="workspace.update",
+                entity_type="workspace",
+                entity_id=workspace_id,
+                details={"name": updated.name, "description": updated.description},
+            )
+        return updated
+
+    def delete_workspace(self, workspace_id: str, actor_id: str = "system") -> bool:
+        with self._connect() as conn:
+            collection_ids = [
+                row["collection_id"]
+                for row in conn.execute(
+                    "SELECT collection_id FROM collections WHERE workspace_id = ?",
+                    (workspace_id,),
+                ).fetchall()
+            ]
+            for collection_id in collection_ids:
+                conn.execute("DELETE FROM saved_scenarios WHERE collection_id = ?", (collection_id,))
+                conn.execute("DELETE FROM baselines WHERE collection_id = ?", (collection_id,))
+            conn.execute("DELETE FROM collections WHERE workspace_id = ?", (workspace_id,))
+            deleted = conn.execute(
+                "DELETE FROM workspaces WHERE workspace_id = ?",
+                (workspace_id,),
+            ).rowcount
+            if deleted > 0:
+                self._insert_audit_event(
+                    conn,
+                    actor_id=actor_id,
+                    action="workspace.delete",
+                    entity_type="workspace",
+                    entity_id=workspace_id,
+                    details={"cascade_collections": len(collection_ids)},
+                )
+        return deleted > 0
+
+    def create_collection(
+        self,
+        workspace_id: str,
+        name: str,
+        description: str = "",
+        actor_id: str = "system",
+    ) -> CollectionRecord:
         record = CollectionRecord(
             collection_id=self._new_id("col"),
             workspace_id=workspace_id,
@@ -115,6 +205,14 @@ class OperatorStore:
             conn.execute(
                 "INSERT INTO collections (collection_id, workspace_id, name, description, created_at) VALUES (?, ?, ?, ?, ?)",
                 (record.collection_id, record.workspace_id, record.name, record.description, record.created_at),
+            )
+            self._insert_audit_event(
+                conn,
+                actor_id=actor_id,
+                action="collection.create",
+                entity_type="collection",
+                entity_id=record.collection_id,
+                details={"workspace_id": workspace_id, "name": name},
             )
         return record
 
@@ -129,7 +227,77 @@ class OperatorStore:
                 rows = conn.execute("SELECT * FROM collections ORDER BY created_at DESC").fetchall()
         return [CollectionRecord(**dict(row)) for row in rows]
 
-    def save_scenario(self, collection_id: str, name: str, config_path: str, input_text: str) -> SavedScenarioRecord:
+    def update_collection(
+        self,
+        collection_id: str,
+        *,
+        name: Optional[str] = None,
+        description: Optional[str] = None,
+        actor_id: str = "system",
+    ) -> CollectionRecord:
+        collection = self.get_collection(collection_id)
+        updated = CollectionRecord(
+            collection_id=collection.collection_id,
+            workspace_id=collection.workspace_id,
+            name=name if name is not None else collection.name,
+            description=description if description is not None else collection.description,
+            created_at=collection.created_at,
+        )
+        with self._connect() as conn:
+            conn.execute(
+                """
+                UPDATE collections
+                SET name = ?, description = ?
+                WHERE collection_id = ?
+                """,
+                (updated.name, updated.description, collection_id),
+            )
+            self._insert_audit_event(
+                conn,
+                actor_id=actor_id,
+                action="collection.update",
+                entity_type="collection",
+                entity_id=collection_id,
+                details={"name": updated.name, "description": updated.description},
+            )
+        return updated
+
+    def delete_collection(self, collection_id: str, actor_id: str = "system") -> bool:
+        with self._connect() as conn:
+            deleted_scenarios = conn.execute(
+                "DELETE FROM saved_scenarios WHERE collection_id = ?",
+                (collection_id,),
+            ).rowcount
+            deleted_baselines = conn.execute(
+                "DELETE FROM baselines WHERE collection_id = ?",
+                (collection_id,),
+            ).rowcount
+            deleted = conn.execute(
+                "DELETE FROM collections WHERE collection_id = ?",
+                (collection_id,),
+            ).rowcount
+            if deleted > 0:
+                self._insert_audit_event(
+                    conn,
+                    actor_id=actor_id,
+                    action="collection.delete",
+                    entity_type="collection",
+                    entity_id=collection_id,
+                    details={
+                        "deleted_scenarios": deleted_scenarios,
+                        "deleted_baselines": deleted_baselines,
+                    },
+                )
+        return deleted > 0
+
+    def save_scenario(
+        self,
+        collection_id: str,
+        name: str,
+        config_path: str,
+        input_text: str,
+        actor_id: str = "system",
+    ) -> SavedScenarioRecord:
         record = SavedScenarioRecord(
             scenario_id=self._new_id("scn"),
             collection_id=collection_id,
@@ -149,6 +317,14 @@ class OperatorStore:
                     record.input_text,
                     record.created_at,
                 ),
+            )
+            self._insert_audit_event(
+                conn,
+                actor_id=actor_id,
+                action="scenario.create",
+                entity_type="scenario",
+                entity_id=record.scenario_id,
+                details={"collection_id": collection_id, "name": name},
             )
         return record
 
@@ -177,6 +353,7 @@ class OperatorStore:
         name: Optional[str] = None,
         config_path: Optional[str] = None,
         input_text: Optional[str] = None,
+        actor_id: str = "system",
     ) -> SavedScenarioRecord:
         scenario = self.get_saved_scenario(scenario_id)
         updated = SavedScenarioRecord(
@@ -201,17 +378,40 @@ class OperatorStore:
                     scenario_id,
                 ),
             )
+            self._insert_audit_event(
+                conn,
+                actor_id=actor_id,
+                action="scenario.update",
+                entity_type="scenario",
+                entity_id=scenario_id,
+                details={"name": updated.name},
+            )
         return updated
 
-    def delete_saved_scenario(self, scenario_id: str) -> bool:
+    def delete_saved_scenario(self, scenario_id: str, actor_id: str = "system") -> bool:
         with self._connect() as conn:
             result = conn.execute(
                 "DELETE FROM saved_scenarios WHERE scenario_id = ?",
                 (scenario_id,),
             )
+            if result.rowcount > 0:
+                self._insert_audit_event(
+                    conn,
+                    actor_id=actor_id,
+                    action="scenario.delete",
+                    entity_type="scenario",
+                    entity_id=scenario_id,
+                    details={},
+                )
         return result.rowcount > 0
 
-    def create_baseline(self, collection_id: str, run_id: str, label: str) -> BaselineRecord:
+    def create_baseline(
+        self,
+        collection_id: str,
+        run_id: str,
+        label: str,
+        actor_id: str = "system",
+    ) -> BaselineRecord:
         record = BaselineRecord(
             baseline_id=self._new_id("base"),
             collection_id=collection_id,
@@ -223,6 +423,14 @@ class OperatorStore:
             conn.execute(
                 "INSERT INTO baselines (baseline_id, collection_id, run_id, label, created_at) VALUES (?, ?, ?, ?, ?)",
                 (record.baseline_id, record.collection_id, record.run_id, record.label, record.created_at),
+            )
+            self._insert_audit_event(
+                conn,
+                actor_id=actor_id,
+                action="baseline.create",
+                entity_type="baseline",
+                entity_id=record.baseline_id,
+                details={"collection_id": collection_id, "run_id": run_id, "label": label},
             )
         return record
 
@@ -257,6 +465,50 @@ class OperatorStore:
             "scenarios": [scenario.model_dump() for scenario in scenarios],
             "baselines": [baseline.model_dump() for baseline in baselines],
         }
+
+    def list_audit_events(self, limit: int = 100) -> list[dict]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT event_id, actor_id, action, entity_type, entity_id, details_json, created_at
+                FROM audit_events
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        events: list[dict] = []
+        for row in rows:
+            event = dict(row)
+            event["details"] = json.loads(event.pop("details_json"))
+            events.append(event)
+        return events
+
+    def _insert_audit_event(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        actor_id: str,
+        action: str,
+        entity_type: str,
+        entity_id: str,
+        details: dict,
+    ) -> None:
+        conn.execute(
+            """
+            INSERT INTO audit_events (event_id, actor_id, action, entity_type, entity_id, details_json, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                self._new_id("evt"),
+                actor_id,
+                action,
+                entity_type,
+                entity_id,
+                json.dumps(details),
+                self._timestamp(),
+            ),
+        )
 
     @staticmethod
     def _new_id(prefix: str) -> str:
