@@ -130,6 +130,7 @@ export default function WorkbenchPage() {
   const [msg, setMsg] = useState("");
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [sessionState, setSessionState] = useState<SessionState | null>(null);
+  const [sessionUserInput, setSessionUserInput] = useState("");
 
   const [selectedCollection, setSelectedCollection] = useState("");
   const [selectedRun, setSelectedRun] = useState("");
@@ -145,6 +146,9 @@ export default function WorkbenchPage() {
   const [runFilterScenario, setRunFilterScenario] = useState("all");
   const [runFilterStatus, setRunFilterStatus] = useState("all");
   const [runFilterFork, setRunFilterFork] = useState("");
+  const [traceFilterScenario, setTraceFilterScenario] = useState("all");
+  const [traceFilterFork, setTraceFilterFork] = useState("");
+  const [selectedTraceKey, setSelectedTraceKey] = useState("");
   const [pruneKeepLatest, setPruneKeepLatest] = useState("10");
   const [quickPrompt, setQuickPrompt] = useState("");
   const [quickConfigPath, setQuickConfigPath] = useState("examples/swarm.yaml");
@@ -353,6 +357,45 @@ export default function WorkbenchPage() {
     });
   }, [runInspection, runFilterScenario, runFilterStatus, runFilterFork]);
 
+  const traceRows = useMemo(() => {
+    const traces = (runInspection?.run.metadata.traces || []) as Array<Record<string, unknown>>;
+    return traces.map((trace, index) => {
+      const forkId = Number(trace.fork_handle ?? trace.fork_id ?? 0);
+      const scenarioName = String(trace.scenario_name || "unknown");
+      const key = `${forkId || index}-${scenarioName}-${index}`;
+      return { key, trace, forkId, scenarioName };
+    });
+  }, [runInspection]);
+
+  const traceScenarioOptions = useMemo(() => {
+    const values = new Set<string>();
+    for (const row of traceRows) values.add(row.scenarioName);
+    return ["all", ...Array.from(values)];
+  }, [traceRows]);
+
+  const filteredTraceRows = useMemo(() => {
+    const forkFilter = traceFilterFork.trim();
+    return traceRows.filter((row) => {
+      if (traceFilterScenario !== "all" && row.scenarioName !== traceFilterScenario) return false;
+      if (forkFilter && String(row.forkId) !== forkFilter) return false;
+      return true;
+    });
+  }, [traceRows, traceFilterScenario, traceFilterFork]);
+
+  const selectedTrace = useMemo(() => {
+    return filteredTraceRows.find((row) => row.key === selectedTraceKey) || filteredTraceRows[0] || null;
+  }, [filteredTraceRows, selectedTraceKey]);
+
+  useEffect(() => {
+    if (!filteredTraceRows.length) {
+      setSelectedTraceKey("");
+      return;
+    }
+    if (!filteredTraceRows.some((row) => row.key === selectedTraceKey)) {
+      setSelectedTraceKey(filteredTraceRows[0].key);
+    }
+  }, [filteredTraceRows, selectedTraceKey]);
+
   const downloadText = (filename: string, content: string, mimeType: string) => {
     const blob = new Blob([content], { type: mimeType });
     const url = URL.createObjectURL(blob);
@@ -526,13 +569,56 @@ export default function WorkbenchPage() {
     }
   };
 
+  const switchSessionUser = async () => {
+    const nextUser = sessionUserInput.trim();
+    if (!nextUser) {
+      setError("Enter a user id to switch session");
+      return;
+    }
+    try {
+      const created = await postJson<SessionState>("/api/workbench/session", { user_id: nextUser });
+      setSessionState(created);
+      setSessionUserInput("");
+      await load();
+      setMsg(`Session switched to ${created.user_id}`);
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  const clearSession = async () => {
+    try {
+      const res = await fetch("/api/workbench/session", { method: "DELETE" });
+      const data = (await res.json()) as { cleared?: boolean; error?: string };
+      if (!res.ok || data.error) throw new Error(data.error || "failed to clear session");
+      const created = await postJson<SessionState>("/api/workbench/session", {});
+      setSessionState(created);
+      await load();
+      setMsg("Session cleared and reinitialized");
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
   return (
     <main className="min-h-screen bg-near-black text-ivory p-6">
       <h1 className="text-3xl mb-3">OpenLVM Workbench</h1>
       {sessionState && (
-        <p className="text-xs text-warm-silver mb-2">
-          session {sessionState.user_id} / {sessionState.session_id}
-        </p>
+        <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-warm-silver">
+          <span>session {sessionState.user_id} / {sessionState.session_id}</span>
+          <input
+            className="bg-dark-surface p-1.5 rounded text-xs"
+            placeholder="switch user id"
+            value={sessionUserInput}
+            onChange={(e) => setSessionUserInput(e.target.value)}
+          />
+          <button className="border border-border-dark px-2 py-1 rounded text-xs" onClick={() => void switchSessionUser()}>
+            Switch User
+          </button>
+          <button className="border border-border-dark px-2 py-1 rounded text-xs" onClick={() => void clearSession()}>
+            Reset Session
+          </button>
+        </div>
       )}
       {error && <p className="text-coral mb-3">{error}</p>}
       {msg && <p className="text-accent-emerald mb-3">{msg}</p>}
@@ -733,6 +819,48 @@ export default function WorkbenchPage() {
                 {result.warnings.length ? <span className="text-coral"> | {result.warnings[0]}</span> : null}
               </div>
             ))}
+          </div>
+          <div className="mt-4 border border-border-dark rounded p-3">
+            <h3 className="text-sm mb-2">Trace Drilldown</h3>
+            <div className="grid gap-2 md:grid-cols-3">
+              <select className="bg-dark-surface p-2 rounded text-xs" value={traceFilterScenario} onChange={(e) => setTraceFilterScenario(e.target.value)}>
+                {traceScenarioOptions.map((name) => <option key={name} value={name}>{name}</option>)}
+              </select>
+              <input
+                className="bg-dark-surface p-2 rounded text-xs"
+                placeholder="fork id"
+                value={traceFilterFork}
+                onChange={(e) => setTraceFilterFork(e.target.value)}
+              />
+              <button
+                className="border border-border-dark px-3 py-1 rounded text-xs"
+                onClick={() => {
+                  setTraceFilterScenario("all");
+                  setTraceFilterFork("");
+                  setSelectedTraceKey("");
+                }}
+              >
+                Clear Trace Filters
+              </button>
+            </div>
+            <p className="mt-2 text-xs text-warm-silver">showing {filteredTraceRows.length} of {traceRows.length} traces</p>
+            <div className="mt-2 grid gap-2 md:grid-cols-2">
+              <div className="max-h-48 overflow-auto border border-border-dark rounded p-2 space-y-1">
+                {filteredTraceRows.map((row) => (
+                  <button
+                    key={row.key}
+                    className={`w-full text-left text-xs rounded p-2 border ${selectedTrace?.key === row.key ? "border-terracotta" : "border-border-dark"}`}
+                    onClick={() => setSelectedTraceKey(row.key)}
+                  >
+                    {row.scenarioName} | fork {row.forkId || "n/a"}
+                  </button>
+                ))}
+                {filteredTraceRows.length === 0 && <p className="text-xs text-warm-silver">No traces match filters.</p>}
+              </div>
+              <pre className="max-h-48 overflow-auto bg-dark-surface rounded p-2 text-[11px] leading-5 whitespace-pre-wrap">
+                {selectedTrace ? JSON.stringify(selectedTrace.trace, null, 2) : "Select a trace to inspect payload"}
+              </pre>
+            </div>
           </div>
         </section>
       )}

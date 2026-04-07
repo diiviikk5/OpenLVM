@@ -42,19 +42,20 @@ export default function CTASection() {
           {/* CTAs */}
           <div className="flex flex-wrap justify-center gap-3.5">
             <Link
-              href="https://github.com"
-              target="_blank"
+              href="/workbench"
               className="group inline-flex items-center gap-2 px-6 py-3 text-[15px] font-medium text-ivory bg-terracotta rounded-xl hover:bg-coral transition-all duration-300 shadow-[0_0_0_1px_rgba(201,100,66,0.4)] hover:shadow-[0_0_24px_rgba(201,100,66,0.3)]"
+            >
+              Open Workbench
+              <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-0.5" />
+            </Link>
+            <Link
+              href="https://github.com/diiviikk5/OpenLVM"
+              target="_blank"
+              className="group inline-flex items-center gap-2 px-6 py-3 text-[15px] font-medium text-warm-silver bg-dark-surface rounded-xl hover:bg-olive-gray/20 transition-all duration-200 shadow-[0_0_0_1px_rgba(48,48,46,0.8)] border border-border-dark"
             >
               <GithubIcon className="w-4.5 h-4.5" />
               Star on GitHub
               <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-0.5" />
-            </Link>
-            <Link
-              href="#features"
-              className="inline-flex items-center gap-2 px-6 py-3 text-[15px] font-medium text-warm-silver bg-dark-surface rounded-xl hover:bg-olive-gray/20 transition-all duration-200 shadow-[0_0_0_1px_rgba(48,48,46,0.8)] border border-border-dark"
-            >
-              Read the Docs
             </Link>
           </div>
         </motion.div>
