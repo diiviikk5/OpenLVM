@@ -1,12 +1,14 @@
 import { NextRequest } from "next/server";
 
-import { contextError, contextJson, resolveApiContext, workbenchErrorStatus } from "@/lib/api-context";
+import { contextError, contextJson, requireAuthenticated, resolveApiContext, workbenchErrorStatus } from "@/lib/api-context";
 import { runWorkbenchBridge } from "@/lib/openlvm-bridge";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(request: NextRequest) {
   const ctx = resolveApiContext(request);
+  const unauth = requireAuthenticated(ctx, "Workspace create");
+  if (unauth) return unauth;
   try {
     const payload = (await request.json()) as { name?: string; description?: string };
     if (!payload.name) {
@@ -26,6 +28,8 @@ export async function POST(request: NextRequest) {
 
 export async function PATCH(request: NextRequest) {
   const ctx = resolveApiContext(request);
+  const unauth = requireAuthenticated(ctx, "Workspace update");
+  if (unauth) return unauth;
   try {
     const payload = (await request.json()) as {
       workspace_id?: string;
@@ -54,6 +58,8 @@ export async function PATCH(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   const ctx = resolveApiContext(request);
+  const unauth = requireAuthenticated(ctx, "Workspace delete");
+  if (unauth) return unauth;
   try {
     const payload = (await request.json()) as { workspace_id?: string };
     if (!payload.workspace_id) {

@@ -89,6 +89,7 @@ Auth-ready API boundaries:
 - Workbench now bootstraps a signed cookie session via `/api/workbench/session`; header-based identity remains as fallback.
 - Workspace roles are now enforced for mutating actions (`viewer`, `editor`, `admin`, `owner`) in both API bridge and UI affordances.
 - Workbench API routes now map auth/permission/resource errors to `401`/`403`/`404` consistently instead of generic `500`.
+- All workbench endpoints except `/api/workbench/session` now require an authenticated signed session and return `401` when missing.
 
 Run tests:
 

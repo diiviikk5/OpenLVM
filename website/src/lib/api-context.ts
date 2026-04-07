@@ -97,3 +97,16 @@ export function workbenchErrorStatus(detail?: string): number {
   if (text.includes("invalid role") || text.includes("required")) return 400;
   return 500;
 }
+
+export function requireAuthenticated(
+  ctx: ApiContext,
+  action = "Request"
+): NextResponse | null {
+  if (ctx.authenticated) return null;
+  return contextError(
+    `${action} requires authenticated session`,
+    ctx,
+    401,
+    "authenticated session required"
+  );
+}

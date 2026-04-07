@@ -1,12 +1,14 @@
 import { NextRequest } from "next/server";
 
-import { contextError, contextJson, resolveApiContext, workbenchErrorStatus } from "@/lib/api-context";
+import { contextError, contextJson, requireAuthenticated, resolveApiContext, workbenchErrorStatus } from "@/lib/api-context";
 import { runWorkbenchBridge } from "@/lib/openlvm-bridge";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
   const ctx = resolveApiContext(request);
+  const unauth = requireAuthenticated(ctx, "Overview fetch");
+  if (unauth) return unauth;
   try {
     const data = await runWorkbenchBridge("overview", [ctx.workspaceId || "", ctx.actorId]);
     if (typeof data === "object" && data && "error" in data) {

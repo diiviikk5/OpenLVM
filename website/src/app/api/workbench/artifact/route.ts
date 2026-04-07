@@ -1,12 +1,14 @@
 import { NextRequest } from "next/server";
 
-import { contextError, contextJson, resolveApiContext, workbenchErrorStatus } from "@/lib/api-context";
+import { contextError, contextJson, requireAuthenticated, resolveApiContext, workbenchErrorStatus } from "@/lib/api-context";
 import { runWorkbenchBridge } from "@/lib/openlvm-bridge";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
   const ctx = resolveApiContext(request);
+  const unauth = requireAuthenticated(ctx, "Artifact request");
+  if (unauth) return unauth;
   try {
     const artifactId = request.nextUrl.searchParams.get("artifact_id");
     const collectionId = request.nextUrl.searchParams.get("collection_id");
@@ -41,6 +43,8 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   const ctx = resolveApiContext(request);
+  const unauth = requireAuthenticated(ctx, "Artifact save");
+  if (unauth) return unauth;
   try {
     const payload = (await request.json()) as {
       collection_id?: string;
@@ -70,6 +74,8 @@ export async function POST(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   const ctx = resolveApiContext(request);
+  const unauth = requireAuthenticated(ctx, "Artifact delete/prune");
+  if (unauth) return unauth;
   try {
     const payload = (await request.json()) as {
       artifact_id?: string;

@@ -1,12 +1,14 @@
 import { NextRequest } from "next/server";
 
-import { contextError, contextJson, resolveApiContext, workbenchErrorStatus } from "@/lib/api-context";
+import { contextError, contextJson, requireAuthenticated, resolveApiContext, workbenchErrorStatus } from "@/lib/api-context";
 import { runWorkbenchBridge } from "@/lib/openlvm-bridge";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(request: NextRequest) {
   const ctx = resolveApiContext(request);
+  const unauth = requireAuthenticated(ctx, "Baseline save");
+  if (unauth) return unauth;
   try {
     const payload = (await request.json()) as {
       collection_id?: string;
