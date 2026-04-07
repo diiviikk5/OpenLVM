@@ -80,3 +80,20 @@ export function contextError(
     status
   );
 }
+
+export function workbenchErrorStatus(detail?: string): number {
+  const text = (detail || "").toLowerCase();
+  if (!text) return 500;
+  if (text.includes("authenticated session required")) return 401;
+  if (
+    text.includes("permission") ||
+    text.includes("not a member") ||
+    text.includes("requires ") ||
+    text.includes("workspace scope")
+  ) {
+    return 403;
+  }
+  if (text.includes("not found")) return 404;
+  if (text.includes("invalid role") || text.includes("required")) return 400;
+  return 500;
+}

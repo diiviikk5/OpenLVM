@@ -88,6 +88,7 @@ Auth-ready API boundaries:
 - `x-openlvm-workspace-id` is now enforced for workbench overview/run/compare routes as a workspace scope boundary.
 - Workbench now bootstraps a signed cookie session via `/api/workbench/session`; header-based identity remains as fallback.
 - Workspace roles are now enforced for mutating actions (`viewer`, `editor`, `admin`, `owner`) in both API bridge and UI affordances.
+- Workbench API routes now map auth/permission/resource errors to `401`/`403`/`404` consistently instead of generic `500`.
 
 Run tests:
 

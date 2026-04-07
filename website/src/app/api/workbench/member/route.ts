@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 
-import { contextError, contextJson, resolveApiContext } from "@/lib/api-context";
+import { contextError, contextJson, resolveApiContext, workbenchErrorStatus } from "@/lib/api-context";
 import { runWorkbenchBridge } from "@/lib/openlvm-bridge";
 
 export const dynamic = "force-dynamic";
@@ -14,11 +14,13 @@ export async function GET(request: NextRequest) {
     }
     const data = await runWorkbenchBridge("list_workspace_members", [workspaceId, ctx.actorId]);
     if (typeof data === "object" && data && "error" in data) {
-      return contextError("Workspace member list failed", ctx, 500, String((data as { error: string }).error));
+      const detail = String((data as { error: string }).error);
+      return contextError("Workspace member list failed", ctx, workbenchErrorStatus(detail), detail);
     }
     return contextJson(data, ctx);
   } catch (error) {
-    return contextError("Workspace member list failed", ctx, 500, error instanceof Error ? error.message : undefined);
+    const detail = error instanceof Error ? error.message : undefined;
+    return contextError("Workspace member list failed", ctx, workbenchErrorStatus(detail), detail);
   }
 }
 
@@ -40,11 +42,13 @@ export async function POST(request: NextRequest) {
       ctx.actorId,
     ]);
     if (typeof data === "object" && data && "error" in data) {
-      return contextError("Workspace member save failed", ctx, 500, String((data as { error: string }).error));
+      const detail = String((data as { error: string }).error);
+      return contextError("Workspace member save failed", ctx, workbenchErrorStatus(detail), detail);
     }
     return contextJson(data, ctx);
   } catch (error) {
-    return contextError("Workspace member save failed", ctx, 500, error instanceof Error ? error.message : undefined);
+    const detail = error instanceof Error ? error.message : undefined;
+    return contextError("Workspace member save failed", ctx, workbenchErrorStatus(detail), detail);
   }
 }
 
@@ -64,10 +68,12 @@ export async function DELETE(request: NextRequest) {
       ctx.actorId,
     ]);
     if (typeof data === "object" && data && "error" in data) {
-      return contextError("Workspace member remove failed", ctx, 500, String((data as { error: string }).error));
+      const detail = String((data as { error: string }).error);
+      return contextError("Workspace member remove failed", ctx, workbenchErrorStatus(detail), detail);
     }
     return contextJson(data, ctx);
   } catch (error) {
-    return contextError("Workspace member remove failed", ctx, 500, error instanceof Error ? error.message : undefined);
+    const detail = error instanceof Error ? error.message : undefined;
+    return contextError("Workspace member remove failed", ctx, workbenchErrorStatus(detail), detail);
   }
 }

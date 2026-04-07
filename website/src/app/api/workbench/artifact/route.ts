@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 
-import { contextError, contextJson, resolveApiContext } from "@/lib/api-context";
+import { contextError, contextJson, resolveApiContext, workbenchErrorStatus } from "@/lib/api-context";
 import { runWorkbenchBridge } from "@/lib/openlvm-bridge";
 
 export const dynamic = "force-dynamic";
@@ -19,7 +19,8 @@ export async function GET(request: NextRequest) {
         ctx.actorId,
       ]);
       if (typeof data === "object" && data && "error" in data) {
-        return contextError("Artifact download failed", ctx, 500, String((data as { error: string }).error));
+        const detail = String((data as { error: string }).error);
+        return contextError("Artifact download failed", ctx, workbenchErrorStatus(detail), detail);
       }
       return contextJson(data, ctx);
     }
@@ -28,11 +29,13 @@ export async function GET(request: NextRequest) {
     }
     const data = await runWorkbenchBridge("list_compare_artifacts", [collectionId, ctx.workspaceId || "", ctx.actorId]);
     if (typeof data === "object" && data && "error" in data) {
-      return contextError("Artifact list failed", ctx, 500, String((data as { error: string }).error));
+      const detail = String((data as { error: string }).error);
+      return contextError("Artifact list failed", ctx, workbenchErrorStatus(detail), detail);
     }
     return contextJson(data, ctx);
   } catch (error) {
-    return contextError("Artifact request failed", ctx, 500, error instanceof Error ? error.message : undefined);
+    const detail = error instanceof Error ? error.message : undefined;
+    return contextError("Artifact request failed", ctx, workbenchErrorStatus(detail), detail);
   }
 }
 
@@ -55,11 +58,13 @@ export async function POST(request: NextRequest) {
       ctx.workspaceId || "",
     ]);
     if (typeof data === "object" && data && "error" in data) {
-      return contextError("Artifact save failed", ctx, 500, String((data as { error: string }).error));
+      const detail = String((data as { error: string }).error);
+      return contextError("Artifact save failed", ctx, workbenchErrorStatus(detail), detail);
     }
     return contextJson(data, ctx);
   } catch (error) {
-    return contextError("Artifact save failed", ctx, 500, error instanceof Error ? error.message : undefined);
+    const detail = error instanceof Error ? error.message : undefined;
+    return contextError("Artifact save failed", ctx, workbenchErrorStatus(detail), detail);
   }
 }
 
@@ -79,7 +84,8 @@ export async function DELETE(request: NextRequest) {
         ctx.workspaceId || "",
       ]);
       if (typeof data === "object" && data && "error" in data) {
-        return contextError("Artifact delete failed", ctx, 500, String((data as { error: string }).error));
+        const detail = String((data as { error: string }).error);
+        return contextError("Artifact delete failed", ctx, workbenchErrorStatus(detail), detail);
       }
       return contextJson(data, ctx);
     }
@@ -90,7 +96,8 @@ export async function DELETE(request: NextRequest) {
         ctx.workspaceId || "",
       ]);
       if (typeof data === "object" && data && "error" in data) {
-        return contextError("Artifact bulk delete failed", ctx, 500, String((data as { error: string }).error));
+        const detail = String((data as { error: string }).error);
+        return contextError("Artifact bulk delete failed", ctx, workbenchErrorStatus(detail), detail);
       }
       return contextJson(data, ctx);
     }
@@ -102,12 +109,14 @@ export async function DELETE(request: NextRequest) {
         ctx.workspaceId || "",
       ]);
       if (typeof data === "object" && data && "error" in data) {
-        return contextError("Artifact prune failed", ctx, 500, String((data as { error: string }).error));
+        const detail = String((data as { error: string }).error);
+        return contextError("Artifact prune failed", ctx, workbenchErrorStatus(detail), detail);
       }
       return contextJson(data, ctx);
     }
     return contextError("artifact_id or collection_id+keep_latest is required", ctx, 400);
   } catch (error) {
-    return contextError("Artifact delete/prune failed", ctx, 500, error instanceof Error ? error.message : undefined);
+    const detail = error instanceof Error ? error.message : undefined;
+    return contextError("Artifact delete/prune failed", ctx, workbenchErrorStatus(detail), detail);
   }
 }

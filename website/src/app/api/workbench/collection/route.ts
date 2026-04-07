@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 
-import { contextError, contextJson, resolveApiContext } from "@/lib/api-context";
+import { contextError, contextJson, resolveApiContext, workbenchErrorStatus } from "@/lib/api-context";
 import { runWorkbenchBridge } from "@/lib/openlvm-bridge";
 
 export const dynamic = "force-dynamic";
@@ -24,11 +24,13 @@ export async function POST(request: NextRequest) {
       payload.description || "",
     ]);
     if (typeof data === "object" && data && "error" in data) {
-      return contextError("Collection creation failed", ctx, 500, String((data as { error: string }).error));
+      const detail = String((data as { error: string }).error);
+      return contextError("Collection creation failed", ctx, workbenchErrorStatus(detail), detail);
     }
     return contextJson(data, ctx);
   } catch (error) {
-    return contextError("Collection creation failed", ctx, 500, error instanceof Error ? error.message : undefined);
+    const detail = error instanceof Error ? error.message : undefined;
+    return contextError("Collection creation failed", ctx, workbenchErrorStatus(detail), detail);
   }
 }
 
@@ -50,11 +52,13 @@ export async function PATCH(request: NextRequest) {
       payload.description || "",
     ]);
     if (typeof data === "object" && data && "error" in data) {
-      return contextError("Collection update failed", ctx, 500, String((data as { error: string }).error));
+      const detail = String((data as { error: string }).error);
+      return contextError("Collection update failed", ctx, workbenchErrorStatus(detail), detail);
     }
     return contextJson(data, ctx);
   } catch (error) {
-    return contextError("Collection update failed", ctx, 500, error instanceof Error ? error.message : undefined);
+    const detail = error instanceof Error ? error.message : undefined;
+    return contextError("Collection update failed", ctx, workbenchErrorStatus(detail), detail);
   }
 }
 
@@ -67,10 +71,12 @@ export async function DELETE(request: NextRequest) {
     }
     const data = await runWorkbenchBridge("delete_collection", [payload.collection_id, ctx.actorId]);
     if (typeof data === "object" && data && "error" in data) {
-      return contextError("Collection delete failed", ctx, 500, String((data as { error: string }).error));
+      const detail = String((data as { error: string }).error);
+      return contextError("Collection delete failed", ctx, workbenchErrorStatus(detail), detail);
     }
     return contextJson(data, ctx);
   } catch (error) {
-    return contextError("Collection delete failed", ctx, 500, error instanceof Error ? error.message : undefined);
+    const detail = error instanceof Error ? error.message : undefined;
+    return contextError("Collection delete failed", ctx, workbenchErrorStatus(detail), detail);
   }
 }
