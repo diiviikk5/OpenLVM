@@ -9,11 +9,25 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from .models import BaselineRecord, CollectionRecord, CompareArtifactRecord, SavedScenarioRecord, WorkspaceRecord
+from .models import (
+    BaselineRecord,
+    CollectionRecord,
+    CompareArtifactRecord,
+    SavedScenarioRecord,
+    WorkspaceMemberRecord,
+    WorkspaceRecord,
+)
 
 
 class OperatorStore:
     """Persist operator-layer objects for the agent testing workbench."""
+
+    _ROLE_RANK = {
+        "viewer": 1,
+        "editor": 2,
+        "admin": 3,
+        "owner": 4,
+    }
 
     def __init__(self, db_path: Optional[str | Path] = None):
         if db_path is None:
@@ -48,6 +62,17 @@ class OperatorStore:
                     name TEXT NOT NULL,
                     description TEXT NOT NULL,
                     created_at TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS workspace_members (
+                    workspace_id TEXT NOT NULL,
+                    user_id TEXT NOT NULL,
+                    role TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    PRIMARY KEY (workspace_id, user_id)
                 )
                 """
             )
@@ -109,24 +134,53 @@ class OperatorStore:
             description=description,
             created_at=self._timestamp(),
         )
+        owner_user_id = self._actor_user_id(actor_id)
         with self._connect() as conn:
             conn.execute(
                 "INSERT INTO workspaces (workspace_id, name, description, created_at) VALUES (?, ?, ?, ?)",
                 (record.workspace_id, record.name, record.description, record.created_at),
             )
+            if owner_user_id != "system":
+                conn.execute(
+                    """
+                    INSERT INTO workspace_members (workspace_id, user_id, role, created_at)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    (record.workspace_id, owner_user_id, "owner", self._timestamp()),
+                )
             self._insert_audit_event(
                 conn,
                 actor_id=actor_id,
                 action="workspace.create",
                 entity_type="workspace",
                 entity_id=record.workspace_id,
-                details={"name": record.name},
+                details={"name": record.name, "owner_user_id": owner_user_id},
             )
         return record
 
-    def list_workspaces(self) -> list[WorkspaceRecord]:
+    def list_workspaces(self, user_id: Optional[str] = None) -> list[WorkspaceRecord]:
         with self._connect() as conn:
-            rows = conn.execute("SELECT * FROM workspaces ORDER BY created_at DESC").fetchall()
+            if user_id:
+                rows = conn.execute(
+                    """
+                    SELECT w.*
+                    FROM workspaces w
+                    WHERE EXISTS (
+                        SELECT 1
+                        FROM workspace_members m
+                        WHERE m.workspace_id = w.workspace_id AND m.user_id = ?
+                    )
+                    OR NOT EXISTS (
+                        SELECT 1
+                        FROM workspace_members m2
+                        WHERE m2.workspace_id = w.workspace_id
+                    )
+                    ORDER BY w.created_at DESC
+                    """,
+                    (user_id,),
+                ).fetchall()
+            else:
+                rows = conn.execute("SELECT * FROM workspaces ORDER BY created_at DESC").fetchall()
         return [WorkspaceRecord(**dict(row)) for row in rows]
 
     def get_workspace(self, workspace_id: str) -> WorkspaceRecord:
@@ -138,6 +192,131 @@ class OperatorStore:
         if row is None:
             raise KeyError(f"Workspace not found: {workspace_id}")
         return WorkspaceRecord(**dict(row))
+
+    def list_workspace_members(self, workspace_id: str) -> list[WorkspaceMemberRecord]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT workspace_id, user_id, role, created_at
+                FROM workspace_members
+                WHERE workspace_id = ?
+                ORDER BY created_at ASC
+                """,
+                (workspace_id,),
+            ).fetchall()
+        return [WorkspaceMemberRecord(**dict(row)) for row in rows]
+
+    def get_workspace_member_role(self, workspace_id: str, user_id: str) -> Optional[str]:
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT role
+                FROM workspace_members
+                WHERE workspace_id = ? AND user_id = ?
+                """,
+                (workspace_id, user_id),
+            ).fetchone()
+        if row is None:
+            return None
+        return str(row["role"])
+
+    def upsert_workspace_member(
+        self,
+        workspace_id: str,
+        user_id: str,
+        role: str,
+        *,
+        actor_id: str = "system",
+    ) -> WorkspaceMemberRecord:
+        normalized_role = self._normalize_role(role)
+        created_at = self._timestamp()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO workspace_members (workspace_id, user_id, role, created_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(workspace_id, user_id)
+                DO UPDATE SET role = excluded.role
+                """,
+                (workspace_id, user_id, normalized_role, created_at),
+            )
+            self._insert_audit_event(
+                conn,
+                actor_id=actor_id,
+                action="workspace.member.upsert",
+                entity_type="workspace",
+                entity_id=workspace_id,
+                details={"user_id": user_id, "role": normalized_role},
+            )
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT workspace_id, user_id, role, created_at
+                FROM workspace_members
+                WHERE workspace_id = ? AND user_id = ?
+                """,
+                (workspace_id, user_id),
+            ).fetchone()
+        if row is None:
+            raise RuntimeError("Failed to upsert workspace member")
+        return WorkspaceMemberRecord(**dict(row))
+
+    def remove_workspace_member(
+        self,
+        workspace_id: str,
+        user_id: str,
+        *,
+        actor_id: str = "system",
+    ) -> bool:
+        with self._connect() as conn:
+            current = conn.execute(
+                """
+                SELECT role
+                FROM workspace_members
+                WHERE workspace_id = ? AND user_id = ?
+                """,
+                (workspace_id, user_id),
+            ).fetchone()
+            if current is not None and current["role"] == "owner":
+                raise PermissionError("Cannot remove workspace owner")
+            deleted = conn.execute(
+                """
+                DELETE FROM workspace_members
+                WHERE workspace_id = ? AND user_id = ?
+                """,
+                (workspace_id, user_id),
+            ).rowcount
+            if deleted > 0:
+                self._insert_audit_event(
+                    conn,
+                    actor_id=actor_id,
+                    action="workspace.member.remove",
+                    entity_type="workspace",
+                    entity_id=workspace_id,
+                    details={"user_id": user_id},
+                )
+        return deleted > 0
+
+    def ensure_workspace_access(
+        self,
+        workspace_id: str,
+        user_id: str,
+        *,
+        min_role: str = "viewer",
+    ) -> str:
+        required_role = self._normalize_role(min_role)
+        if self._workspace_is_legacy_public(workspace_id):
+            return "owner"
+        member_role = self.get_workspace_member_role(workspace_id, user_id)
+        if member_role is None:
+            raise PermissionError(
+                f"user {user_id} is not a member of workspace {workspace_id}"
+            )
+        if self._ROLE_RANK[member_role] < self._ROLE_RANK[required_role]:
+            raise PermissionError(
+                f"user {user_id} requires {required_role} role in workspace {workspace_id}"
+            )
+        return member_role
 
     def update_workspace(
         self,
@@ -187,6 +366,7 @@ class OperatorStore:
                 conn.execute("DELETE FROM baselines WHERE collection_id = ?", (collection_id,))
                 conn.execute("DELETE FROM compare_artifacts WHERE collection_id = ?", (collection_id,))
             conn.execute("DELETE FROM collections WHERE workspace_id = ?", (workspace_id,))
+            conn.execute("DELETE FROM workspace_members WHERE workspace_id = ?", (workspace_id,))
             deleted = conn.execute(
                 "DELETE FROM workspaces WHERE workspace_id = ?",
                 (workspace_id,),
@@ -630,10 +810,12 @@ class OperatorStore:
     def get_collection_summary(self, collection_id: str) -> dict:
         collection = self.get_collection(collection_id)
         workspace = self.get_workspace(collection.workspace_id)
+        members = self.list_workspace_members(workspace.workspace_id)
         scenarios = self.list_saved_scenarios(collection_id)
         baselines = self.list_baselines(collection_id)
         return {
             "workspace": workspace.model_dump(),
+            "workspace_members": [member.model_dump() for member in members],
             "collection": collection.model_dump(),
             "scenario_count": len(scenarios),
             "baseline_count": len(baselines),
@@ -671,6 +853,33 @@ class OperatorStore:
             created_at=row["created_at"],
             actor_id=row["actor_id"],
         )
+
+    def _workspace_is_legacy_public(self, workspace_id: str) -> bool:
+        with self._connect() as conn:
+            count = conn.execute(
+                """
+                SELECT COUNT(*) AS count
+                FROM workspace_members
+                WHERE workspace_id = ?
+                """,
+                (workspace_id,),
+            ).fetchone()
+        member_count = int(count["count"]) if count is not None else 0
+        return member_count == 0
+
+    @classmethod
+    def _normalize_role(cls, role: str) -> str:
+        normalized = (role or "").strip().lower()
+        if normalized not in cls._ROLE_RANK:
+            raise ValueError(f"invalid role: {role}")
+        return normalized
+
+    @staticmethod
+    def _actor_user_id(actor_id: str) -> str:
+        token = (actor_id or "").strip()
+        if not token:
+            return "system"
+        return token.split("#", 1)[0] or "system"
 
     def _insert_audit_event(
         self,

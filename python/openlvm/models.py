@@ -140,6 +140,13 @@ class WorkspaceRecord(BaseModel):
     created_at: str
 
 
+class WorkspaceMemberRecord(BaseModel):
+    workspace_id: str
+    user_id: str
+    role: str
+    created_at: str
+
+
 class CollectionRecord(BaseModel):
     collection_id: str
     workspace_id: str

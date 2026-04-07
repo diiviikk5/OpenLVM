@@ -86,3 +86,29 @@ def test_operator_store_compare_artifacts(tmp_path):
     assert "compare_artifact.create" in actions
     assert "compare_artifact.delete" in actions
     assert "compare_artifact.prune" in actions
+
+
+def test_operator_store_workspace_members_and_roles(tmp_path):
+    store = OperatorStore(tmp_path / "operator_store.db")
+    workspace = store.create_workspace("Team A", actor_id="alice#s1")
+
+    members = store.list_workspace_members(workspace.workspace_id)
+    assert len(members) == 1
+    assert members[0].user_id == "alice"
+    assert members[0].role == "owner"
+
+    store.upsert_workspace_member(workspace.workspace_id, "bob", "editor", actor_id="alice#s1")
+    assert store.get_workspace_member_role(workspace.workspace_id, "bob") == "editor"
+    store.ensure_workspace_access(workspace.workspace_id, "bob", min_role="viewer")
+    store.ensure_workspace_access(workspace.workspace_id, "bob", min_role="editor")
+
+    try:
+        store.ensure_workspace_access(workspace.workspace_id, "bob", min_role="admin")
+    except PermissionError:
+        pass
+    else:
+        raise AssertionError("bob should not have admin access")
+
+    removed = store.remove_workspace_member(workspace.workspace_id, "bob", actor_id="alice#s1")
+    assert removed is True
+    assert store.get_workspace_member_role(workspace.workspace_id, "bob") is None

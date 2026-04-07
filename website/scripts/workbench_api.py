@@ -19,17 +19,58 @@ def _bootstrap() -> None:
         sys.path.insert(0, str(python_dir))
 
 
+def _actor_user_id(actor_id: str) -> str:
+    token = (actor_id or "").strip()
+    if not token:
+        return "anonymous"
+    return token.split("#", 1)[0] or "anonymous"
+
+
+def _assert_workspace_access(workspace_id: str, actor_id: str, min_role: str) -> str:
+    from openlvm.operator_store import OperatorStore
+
+    user_id = _actor_user_id(actor_id)
+    return OperatorStore().ensure_workspace_access(workspace_id, user_id, min_role=min_role)
+
+
+def _assert_collection_access(collection_id: str, actor_id: str, min_role: str) -> str:
+    from openlvm.operator_store import OperatorStore
+
+    summary = OperatorStore().get_collection_summary(collection_id)
+    workspace_id = summary["workspace"]["workspace_id"]
+    return _assert_workspace_access(workspace_id, actor_id, min_role)
+
+
+def _workspace_accessible(store, workspace_id: str, user_id: str) -> bool:
+    if user_id == "anonymous":
+        return True
+    try:
+        store.ensure_workspace_access(workspace_id, user_id, min_role="viewer")
+        return True
+    except PermissionError:
+        return False
+
+
 def _overview(args: list[str]) -> dict:
     from openlvm.eval_store import EvalStore
     from openlvm.operator_store import OperatorStore
 
     workspace_scope = args[0] if args else ""
+    actor_id = args[1] if len(args) > 1 else "system"
+    user_id = _actor_user_id(actor_id)
     op_store = OperatorStore()
     eval_store = EvalStore()
-    workspaces = [ws.model_dump() for ws in op_store.list_workspaces()]
+    workspaces = [
+        ws.model_dump()
+        for ws in op_store.list_workspaces(user_id if user_id != "anonymous" else None)
+    ]
     collections = [
         col.model_dump()
         for col in op_store.list_collections(workspace_scope or None)
+        if (
+            user_id == "anonymous"
+            or _workspace_accessible(op_store, col.workspace_id, user_id)
+        )
     ]
     baselines_by_collection = {
         col["collection_id"]: [base.model_dump() for base in op_store.list_baselines(col["collection_id"])]
@@ -55,12 +96,22 @@ def _overview(args: list[str]) -> dict:
         for col in collections
     }
     recent_runs = [run.model_dump() for run in eval_store.list_runs(limit=20)]
+    members_by_workspace = {
+        ws["workspace_id"]: [m.model_dump() for m in op_store.list_workspace_members(ws["workspace_id"])]
+        for ws in workspaces
+    }
+    user_role_by_workspace = {
+        ws["workspace_id"]: (op_store.get_workspace_member_role(ws["workspace_id"], user_id) or "")
+        for ws in workspaces
+    }
     return {
         "workspaces": workspaces,
         "collections": collections,
         "baselines_by_collection": baselines_by_collection,
         "scenarios_by_collection": scenarios_by_collection,
         "compare_artifacts_by_collection": compare_artifacts_by_collection,
+        "members_by_workspace": members_by_workspace,
+        "user_role_by_workspace": user_role_by_workspace,
         "recent_runs": recent_runs,
         "audit_events": op_store.list_audit_events(limit=100),
     }
@@ -76,6 +127,8 @@ def _run_collection(args: list[str]) -> dict:
     scenarios = int(args[1]) if len(args) > 1 and args[1] else None
     chaos_mode = args[2] if len(args) > 2 and args[2] else None
     workspace_scope = args[3] if len(args) > 3 else ""
+    actor_id = args[4] if len(args) > 4 else "system"
+    _assert_collection_access(collection_id, actor_id, "editor")
     if workspace_scope:
         _assert_collection_workspace(collection_id, workspace_scope)
     run = TestOrchestrator().run_collection(
@@ -96,10 +149,17 @@ def _run_details(args: list[str]) -> dict:
     return {"run": run, "trace_summary": trace_summary}
 
 
-def _compute_compare_payload(collection_id: str, run_id: str, baseline_id_csv: str, workspace_scope: str) -> tuple[dict, list[str]]:
+def _compute_compare_payload(
+    collection_id: str,
+    run_id: str,
+    baseline_id_csv: str,
+    workspace_scope: str,
+    actor_id: str,
+) -> tuple[dict, list[str]]:
     from openlvm.eval_store import EvalStore
     from openlvm.operator_store import OperatorStore
 
+    _assert_collection_access(collection_id, actor_id, "viewer")
     if workspace_scope:
         _assert_collection_workspace(collection_id, workspace_scope)
     op_store = OperatorStore()
@@ -130,13 +190,14 @@ def _compare_baseline(args: list[str]) -> dict:
     run_id = args[1]
     baseline_id_csv = args[2] if len(args) > 2 else ""
     workspace_scope = args[3] if len(args) > 3 else ""
-    payload, _ = _compute_compare_payload(collection_id, run_id, baseline_id_csv, workspace_scope)
+    actor_id = args[4] if len(args) > 4 else "system"
+    payload, _ = _compute_compare_payload(collection_id, run_id, baseline_id_csv, workspace_scope, actor_id)
     return payload
 
 
 def _save_compare_artifact(args: list[str]) -> dict:
     if len(args) < 4:
-        raise ValueError("collection_id, run_id, actor_id, and workspace_scope are required")
+        raise ValueError("collection_id, run_id, baseline_ids, and actor_id are required")
     from openlvm.operator_store import OperatorStore
 
     collection_id = args[0]
@@ -144,7 +205,10 @@ def _save_compare_artifact(args: list[str]) -> dict:
     baseline_id_csv = args[2] if len(args) > 2 else ""
     actor_id = args[3]
     workspace_scope = args[4] if len(args) > 4 else ""
-    payload, baseline_ids = _compute_compare_payload(collection_id, run_id, baseline_id_csv, workspace_scope)
+    _assert_collection_access(collection_id, actor_id, "editor")
+    payload, baseline_ids = _compute_compare_payload(
+        collection_id, run_id, baseline_id_csv, workspace_scope, actor_id
+    )
     artifact = OperatorStore().save_compare_artifact(
         collection_id,
         run_id,
@@ -168,6 +232,8 @@ def _list_compare_artifacts(args: list[str]) -> dict:
 
     collection_id = args[0]
     workspace_scope = args[1] if len(args) > 1 else ""
+    actor_id = args[2] if len(args) > 2 else "system"
+    _assert_collection_access(collection_id, actor_id, "viewer")
     if workspace_scope:
         _assert_collection_workspace(collection_id, workspace_scope)
     rows = OperatorStore().list_compare_artifacts(collection_id, limit=50)
@@ -195,7 +261,9 @@ def _download_compare_artifact(args: list[str]) -> dict:
     artifact_id = args[0]
     output_format = args[1] if len(args) > 1 else "json"
     workspace_scope = args[2] if len(args) > 2 else ""
+    actor_id = args[3] if len(args) > 3 else "system"
     artifact = OperatorStore().get_compare_artifact(artifact_id)
+    _assert_collection_access(artifact.collection_id, actor_id, "viewer")
     if workspace_scope:
         _assert_collection_workspace(artifact.collection_id, workspace_scope)
     if output_format == "json":
@@ -231,6 +299,7 @@ def _delete_compare_artifact(args: list[str]) -> dict:
     workspace_scope = args[2] if len(args) > 2 else ""
     store = OperatorStore()
     artifact = store.get_compare_artifact(artifact_id)
+    _assert_collection_access(artifact.collection_id, actor_id, "editor")
     if workspace_scope:
         _assert_collection_workspace(artifact.collection_id, workspace_scope)
     deleted = store.delete_compare_artifact(artifact_id, actor_id=actor_id)
@@ -246,6 +315,7 @@ def _prune_compare_artifacts(args: list[str]) -> dict:
     keep_latest = int(args[1])
     actor_id = args[2]
     workspace_scope = args[3] if len(args) > 3 else ""
+    _assert_collection_access(collection_id, actor_id, "editor")
     if workspace_scope:
         _assert_collection_workspace(collection_id, workspace_scope)
     deleted_count = OperatorStore().prune_compare_artifacts(
@@ -332,6 +402,7 @@ def _update_workspace(args: list[str]) -> dict:
     actor_id = args[1]
     name = args[2] if len(args) > 2 and args[2] else None
     description = args[3] if len(args) > 3 and args[3] else None
+    _assert_workspace_access(workspace_id, actor_id, "admin")
     return OperatorStore().update_workspace(
         workspace_id,
         name=name,
@@ -347,6 +418,7 @@ def _delete_workspace(args: list[str]) -> dict:
 
     workspace_id = args[0]
     actor_id = args[1]
+    _assert_workspace_access(workspace_id, actor_id, "owner")
     deleted = OperatorStore().delete_workspace(workspace_id, actor_id=actor_id)
     return {"deleted": deleted}
 
@@ -360,6 +432,7 @@ def _create_collection(args: list[str]) -> dict:
     name = args[1]
     actor_id = args[2]
     description = args[3] if len(args) > 3 else ""
+    _assert_workspace_access(workspace_id, actor_id, "editor")
     return OperatorStore().create_collection(workspace_id, name, description, actor_id=actor_id).model_dump()
 
 
@@ -372,6 +445,7 @@ def _update_collection(args: list[str]) -> dict:
     actor_id = args[1]
     name = args[2] if len(args) > 2 and args[2] else None
     description = args[3] if len(args) > 3 and args[3] else None
+    _assert_collection_access(collection_id, actor_id, "editor")
     return OperatorStore().update_collection(
         collection_id,
         name=name,
@@ -387,6 +461,7 @@ def _delete_collection(args: list[str]) -> dict:
 
     collection_id = args[0]
     actor_id = args[1]
+    _assert_collection_access(collection_id, actor_id, "admin")
     deleted = OperatorStore().delete_collection(collection_id, actor_id=actor_id)
     return {"deleted": deleted}
 
@@ -401,6 +476,7 @@ def _save_scenario(args: list[str]) -> dict:
     config_path = _resolve_config_path(args[2])
     input_text = args[3]
     actor_id = args[4]
+    _assert_collection_access(collection_id, actor_id, "editor")
     return OperatorStore().save_scenario(
         collection_id,
         name,
@@ -419,15 +495,18 @@ def _save_baseline(args: list[str]) -> dict:
     run_id = args[1]
     label = args[2]
     actor_id = args[3]
+    _assert_collection_access(collection_id, actor_id, "editor")
     return OperatorStore().create_baseline(collection_id, run_id, label, actor_id=actor_id).model_dump()
 
 
 def _list_scenarios(args: list[str]) -> dict:
-    if not args:
-        raise ValueError("collection_id is required")
+    if len(args) < 2:
+        raise ValueError("collection_id and actor_id are required")
     from openlvm.operator_store import OperatorStore
 
     collection_id = args[0]
+    actor_id = args[1]
+    _assert_collection_access(collection_id, actor_id, "viewer")
     rows = OperatorStore().list_saved_scenarios(collection_id)
     return {"scenarios": [row.model_dump() for row in rows]}
 
@@ -442,6 +521,8 @@ def _update_scenario(args: list[str]) -> dict:
     config_path = _resolve_config_path(args[2])
     input_text = args[3]
     actor_id = args[4]
+    scenario = OperatorStore().get_saved_scenario(scenario_id)
+    _assert_collection_access(scenario.collection_id, actor_id, "editor")
     return OperatorStore().update_saved_scenario(
         scenario_id,
         name=name,
@@ -456,8 +537,55 @@ def _delete_scenario(args: list[str]) -> dict:
         raise ValueError("scenario_id and actor_id are required")
     from openlvm.operator_store import OperatorStore
 
-    deleted = OperatorStore().delete_saved_scenario(args[0], actor_id=args[1])
+    store = OperatorStore()
+    scenario = store.get_saved_scenario(args[0])
+    _assert_collection_access(scenario.collection_id, args[1], "editor")
+    deleted = store.delete_saved_scenario(args[0], actor_id=args[1])
     return {"deleted": deleted}
+
+
+def _list_workspace_members(args: list[str]) -> dict:
+    if len(args) < 2:
+        raise ValueError("workspace_id and actor_id are required")
+    from openlvm.operator_store import OperatorStore
+
+    workspace_id = args[0]
+    actor_id = args[1]
+    _assert_workspace_access(workspace_id, actor_id, "viewer")
+    members = OperatorStore().list_workspace_members(workspace_id)
+    return {"members": [member.model_dump() for member in members]}
+
+
+def _upsert_workspace_member(args: list[str]) -> dict:
+    if len(args) < 4:
+        raise ValueError("workspace_id, user_id, role, and actor_id are required")
+    from openlvm.operator_store import OperatorStore
+
+    workspace_id = args[0]
+    user_id = args[1]
+    role = args[2]
+    actor_id = args[3]
+    _assert_workspace_access(workspace_id, actor_id, "admin")
+    member = OperatorStore().upsert_workspace_member(
+        workspace_id,
+        user_id,
+        role,
+        actor_id=actor_id,
+    )
+    return member.model_dump()
+
+
+def _remove_workspace_member(args: list[str]) -> dict:
+    if len(args) < 3:
+        raise ValueError("workspace_id, user_id, and actor_id are required")
+    from openlvm.operator_store import OperatorStore
+
+    workspace_id = args[0]
+    user_id = args[1]
+    actor_id = args[2]
+    _assert_workspace_access(workspace_id, actor_id, "admin")
+    deleted = OperatorStore().remove_workspace_member(workspace_id, user_id, actor_id=actor_id)
+    return {"deleted": deleted, "workspace_id": workspace_id, "user_id": user_id}
 
 
 def _main() -> int:
@@ -510,6 +638,12 @@ def _main() -> int:
             result = _update_scenario(args)
         elif command == "delete_scenario":
             result = _delete_scenario(args)
+        elif command == "list_workspace_members":
+            result = _list_workspace_members(args)
+        elif command == "upsert_workspace_member":
+            result = _upsert_workspace_member(args)
+        elif command == "remove_workspace_member":
+            result = _remove_workspace_member(args)
         else:
             raise ValueError(f"unknown command: {command}")
         print(json.dumps(result))
