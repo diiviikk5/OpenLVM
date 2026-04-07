@@ -57,6 +57,11 @@ type CompareArtifact = {
   created_at: string;
   actor_id: string;
 };
+type TraceEvent = {
+  index: number;
+  type: string;
+  payload: Record<string, unknown>;
+};
 type RunInspection = {
   run: {
     run_id: string;
@@ -158,12 +163,16 @@ export default function WorkbenchPage() {
   const [runFilterFork, setRunFilterFork] = useState("");
   const [traceFilterScenario, setTraceFilterScenario] = useState("all");
   const [traceFilterFork, setTraceFilterFork] = useState("");
+  const [traceSearch, setTraceSearch] = useState("");
+  const [traceEventTypeFilter, setTraceEventTypeFilter] = useState("all");
+  const [traceEventSearch, setTraceEventSearch] = useState("");
   const [selectedTraceKey, setSelectedTraceKey] = useState("");
   const [pruneKeepLatest, setPruneKeepLatest] = useState("10");
   const [quickPrompt, setQuickPrompt] = useState("");
   const [quickConfigPath, setQuickConfigPath] = useState("examples/swarm.yaml");
   const [quickRunning, setQuickRunning] = useState(false);
   const [quickLastRun, setQuickLastRun] = useState<Run | null>(null);
+  const [artifactPresetId, setArtifactPresetId] = useState("");
 
   const [workspaceName, setWorkspaceName] = useState("");
   const [collectionWorkspace, setCollectionWorkspace] = useState("");
@@ -261,6 +270,15 @@ export default function WorkbenchPage() {
     () => (overview && selectedCollection ? overview.compare_artifacts_by_collection[selectedCollection] || [] : []),
     [overview, selectedCollection]
   );
+  useEffect(() => {
+    if (!compareArtifacts.length) {
+      setArtifactPresetId("");
+      return;
+    }
+    if (!artifactPresetId || !compareArtifacts.some((row) => row.artifact_id === artifactPresetId)) {
+      setArtifactPresetId(compareArtifacts[0].artifact_id);
+    }
+  }, [compareArtifacts, artifactPresetId]);
 
   const workspaceNames = useMemo(() => {
     const map: Record<string, string> = {};
@@ -425,12 +443,17 @@ export default function WorkbenchPage() {
 
   const filteredTraceRows = useMemo(() => {
     const forkFilter = traceFilterFork.trim();
+    const search = traceSearch.trim().toLowerCase();
     return traceRows.filter((row) => {
       if (traceFilterScenario !== "all" && row.scenarioName !== traceFilterScenario) return false;
       if (forkFilter && String(row.forkId) !== forkFilter) return false;
+      if (search) {
+        const dump = JSON.stringify(row.trace).toLowerCase();
+        if (!dump.includes(search)) return false;
+      }
       return true;
     });
-  }, [traceRows, traceFilterScenario, traceFilterFork]);
+  }, [traceRows, traceFilterScenario, traceFilterFork, traceSearch]);
 
   const selectedTrace = useMemo(() => {
     return filteredTraceRows.find((row) => row.key === selectedTraceKey) || filteredTraceRows[0] || null;
@@ -445,6 +468,42 @@ export default function WorkbenchPage() {
       setSelectedTraceKey(filteredTraceRows[0].key);
     }
   }, [filteredTraceRows, selectedTraceKey]);
+
+  const selectedTraceEvents = useMemo(() => {
+    if (!selectedTrace) return [] as TraceEvent[];
+    const rawEvents = selectedTrace.trace.events;
+    if (!Array.isArray(rawEvents)) return [] as TraceEvent[];
+    const events = rawEvents.map((event, index) => {
+      const payload: Record<string, unknown> =
+        event && typeof event === "object" ? (event as Record<string, unknown>) : ({ value: event } as Record<string, unknown>);
+      const typeToken = payload["type"] || payload["event"] || payload["name"] || "unknown";
+      return {
+        index,
+        type: String(typeToken),
+        payload,
+      };
+    });
+    const typeFilter = traceEventTypeFilter.trim().toLowerCase();
+    const search = traceEventSearch.trim().toLowerCase();
+    return events.filter((event) => {
+      if (typeFilter !== "all" && event.type.toLowerCase() !== typeFilter) return false;
+      if (search && !JSON.stringify(event.payload).toLowerCase().includes(search)) return false;
+      return true;
+    });
+  }, [selectedTrace, traceEventTypeFilter, traceEventSearch]);
+
+  const selectedTraceEventTypes = useMemo(() => {
+    const values = new Set<string>();
+    const rawEvents = selectedTrace?.trace.events;
+    if (Array.isArray(rawEvents)) {
+      for (const event of rawEvents) {
+        const payload = event && typeof event === "object" ? (event as Record<string, unknown>) : {};
+        const typeToken = payload["type"] || payload["event"] || payload["name"] || "unknown";
+        values.add(String(typeToken).toLowerCase());
+      }
+    }
+    return ["all", ...Array.from(values)];
+  }, [selectedTrace]);
 
   const downloadText = (filename: string, content: string, mimeType: string) => {
     const blob = new Blob([content], { type: mimeType });
@@ -600,20 +659,47 @@ export default function WorkbenchPage() {
       const data = (await res.json()) as {
         candidate_run_id?: string;
         baseline_ids?: string[];
+        collection_id?: string;
         error?: string;
       };
       if (!res.ok || data.error || !data.candidate_run_id) {
         throw new Error(data.error || "artifact replay failed");
       }
+      if (data.collection_id) {
+        setSelectedCollection(data.collection_id);
+      }
       setSelectedRun(data.candidate_run_id);
       setSelectedBaselines(data.baseline_ids || []);
       const resp = await postJson<CompareResponse>("/api/workbench/compare", {
-        collection_id: selectedCollection,
+        collection_id: data.collection_id || selectedCollection,
         run_id: data.candidate_run_id,
         baseline_ids: data.baseline_ids || [],
       });
       setCompare(resp);
       setMsg(`Replayed compare from artifact ${artifactId}`);
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  const applyArtifactPreset = async (artifactId: string) => {
+    try {
+      const res = await fetch(`/api/workbench/artifact?artifact_id=${encodeURIComponent(artifactId)}&format=json`, { cache: "no-store" });
+      const data = (await res.json()) as {
+        candidate_run_id?: string;
+        baseline_ids?: string[];
+        collection_id?: string;
+        error?: string;
+      };
+      if (!res.ok || data.error || !data.candidate_run_id) {
+        throw new Error(data.error || "artifact preset load failed");
+      }
+      if (data.collection_id) {
+        setSelectedCollection(data.collection_id);
+      }
+      setSelectedRun(data.candidate_run_id);
+      setSelectedBaselines(data.baseline_ids || []);
+      setMsg(`Preset loaded from artifact ${artifactId}`);
     } catch (e) {
       setError(String(e));
     }
@@ -906,6 +992,37 @@ export default function WorkbenchPage() {
           <button className="bg-terracotta px-3 py-1 rounded disabled:opacity-50" disabled={isComparing || !canViewSelectedCollection} onClick={async () => { try { setIsComparing(true); const resp = await postJson<CompareResponse>("/api/workbench/compare", { collection_id: selectedCollection, run_id: selectedRun, baseline_ids: selectedBaselines }); setCompare(resp); setMsg(`Compared ${resp.diffs.length} baseline(s)`); } catch (e) { setError(String(e)); } finally { setIsComparing(false); } }}>{isComparing ? "Comparing..." : "Compare"}</button>
         </div>
         {lastRunId && <p className="mt-2 text-sm text-accent-emerald">Latest run: {lastRunId}</p>}
+        <div className="mt-3 p-2 border border-border-dark rounded">
+          <p className="text-sm text-warm-silver mb-2">Apply saved artifact preset</p>
+          <div className="grid gap-2 md:grid-cols-4">
+            <select
+              className="bg-dark-surface p-2 rounded text-sm md:col-span-2"
+              value={artifactPresetId}
+              onChange={(e) => setArtifactPresetId(e.target.value)}
+            >
+              {compareArtifacts.map((artifact) => (
+                <option key={artifact.artifact_id} value={artifact.artifact_id}>
+                  {artifact.filename} ({artifact.candidate_run_id})
+                </option>
+              ))}
+              {compareArtifacts.length === 0 && <option value="">No artifacts available</option>}
+            </select>
+            <button
+              className="border border-border-dark px-3 py-1 rounded text-sm disabled:opacity-50"
+              disabled={!artifactPresetId || !canViewSelectedCollection}
+              onClick={() => void applyArtifactPreset(artifactPresetId)}
+            >
+              Use Preset
+            </button>
+            <button
+              className="border border-border-dark px-3 py-1 rounded text-sm disabled:opacity-50"
+              disabled={!artifactPresetId || !canViewSelectedCollection}
+              onClick={() => void replayFromArtifact(artifactPresetId)}
+            >
+              Replay Compare
+            </button>
+          </div>
+        </div>
       </section>
 
       {runInspection && (
@@ -953,11 +1070,18 @@ export default function WorkbenchPage() {
                 value={traceFilterFork}
                 onChange={(e) => setTraceFilterFork(e.target.value)}
               />
+              <input
+                className="bg-dark-surface p-2 rounded text-xs"
+                placeholder="search trace payload"
+                value={traceSearch}
+                onChange={(e) => setTraceSearch(e.target.value)}
+              />
               <button
                 className="border border-border-dark px-3 py-1 rounded text-xs"
                 onClick={() => {
                   setTraceFilterScenario("all");
                   setTraceFilterFork("");
+                  setTraceSearch("");
                   setSelectedTraceKey("");
                 }}
               >
@@ -981,6 +1105,44 @@ export default function WorkbenchPage() {
               <pre className="max-h-48 overflow-auto bg-dark-surface rounded p-2 text-[11px] leading-5 whitespace-pre-wrap">
                 {selectedTrace ? JSON.stringify(selectedTrace.trace, null, 2) : "Select a trace to inspect payload"}
               </pre>
+            </div>
+            <div className="mt-3 border border-border-dark rounded p-2">
+              <h4 className="text-xs mb-2">Trace Events</h4>
+              <div className="grid gap-2 md:grid-cols-3 mb-2">
+                <select
+                  className="bg-dark-surface p-2 rounded text-xs"
+                  value={traceEventTypeFilter}
+                  onChange={(e) => setTraceEventTypeFilter(e.target.value)}
+                >
+                  {selectedTraceEventTypes.map((eventType) => <option key={eventType} value={eventType}>{eventType}</option>)}
+                </select>
+                <input
+                  className="bg-dark-surface p-2 rounded text-xs"
+                  placeholder="search event payload"
+                  value={traceEventSearch}
+                  onChange={(e) => setTraceEventSearch(e.target.value)}
+                />
+                <button
+                  className="border border-border-dark px-3 py-1 rounded text-xs"
+                  onClick={() => {
+                    setTraceEventTypeFilter("all");
+                    setTraceEventSearch("");
+                  }}
+                >
+                  Clear Event Filters
+                </button>
+              </div>
+              <div className="space-y-1 max-h-48 overflow-auto text-xs">
+                {selectedTraceEvents.map((event) => (
+                  <div key={`${event.index}-${event.type}`} className="border border-border-dark rounded p-2">
+                    <div className="text-warm-silver mb-1">#{event.index} {event.type}</div>
+                    <pre className="bg-dark-surface rounded p-2 whitespace-pre-wrap">{JSON.stringify(event.payload, null, 2)}</pre>
+                  </div>
+                ))}
+                {selectedTrace && selectedTraceEvents.length === 0 && (
+                  <p className="text-warm-silver">No events in selected trace for current filters.</p>
+                )}
+              </div>
             </div>
           </div>
         </section>
