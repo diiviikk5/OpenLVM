@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 
 type Workspace = { workspace_id: string; name: string };
 type Collection = { collection_id: string; workspace_id: string; name: string };
+type WorkspaceMember = { workspace_id: string; user_id: string; role: "viewer" | "editor" | "admin" | "owner"; created_at: string };
 type Baseline = { baseline_id: string; run_id: string; label: string; created_at?: string };
 type Scenario = {
   scenario_id: string;
@@ -87,6 +88,8 @@ type Overview = {
   baselines_by_collection: Record<string, Baseline[]>;
   scenarios_by_collection: Record<string, Scenario[]>;
   compare_artifacts_by_collection: Record<string, CompareArtifact[]>;
+  members_by_workspace: Record<string, WorkspaceMember[]>;
+  user_role_by_workspace: Record<string, string>;
   recent_runs: Run[];
   audit_events: Array<{
     event_id: string;
@@ -158,6 +161,9 @@ export default function WorkbenchPage() {
   const [workspaceName, setWorkspaceName] = useState("");
   const [collectionWorkspace, setCollectionWorkspace] = useState("");
   const [collectionName, setCollectionName] = useState("");
+  const [memberWorkspace, setMemberWorkspace] = useState("");
+  const [memberUserId, setMemberUserId] = useState("");
+  const [memberRole, setMemberRole] = useState<"viewer" | "editor" | "admin">("viewer");
 
   const [scenarioEditId, setScenarioEditId] = useState("");
   const [scenarioCollection, setScenarioCollection] = useState("");
@@ -172,6 +178,7 @@ export default function WorkbenchPage() {
     const data = await fetchOverview();
     setOverview(data);
     if (data.workspaces[0] && !collectionWorkspace) setCollectionWorkspace(data.workspaces[0].workspace_id);
+    if (data.workspaces[0] && !memberWorkspace) setMemberWorkspace(data.workspaces[0].workspace_id);
     if (data.collections[0] && !selectedCollection) {
       const col = data.collections[0].collection_id;
       setSelectedCollection(col);
@@ -199,7 +206,10 @@ export default function WorkbenchPage() {
 
         const data = await fetchOverview();
         setOverview(data);
-        if (data.workspaces[0]) setCollectionWorkspace(data.workspaces[0].workspace_id);
+        if (data.workspaces[0]) {
+          setCollectionWorkspace(data.workspaces[0].workspace_id);
+          setMemberWorkspace(data.workspaces[0].workspace_id);
+        }
         if (data.collections[0]) {
           const col = data.collections[0].collection_id;
           setSelectedCollection(col);
@@ -250,6 +260,14 @@ export default function WorkbenchPage() {
     for (const ws of overview?.workspaces || []) map[ws.workspace_id] = ws.name;
     return map;
   }, [overview]);
+  const currentWorkspaceRole = useMemo(() => {
+    if (!overview || !memberWorkspace) return "";
+    return overview.user_role_by_workspace[memberWorkspace] || "";
+  }, [overview, memberWorkspace]);
+  const selectedWorkspaceMembers = useMemo(() => {
+    if (!overview || !memberWorkspace) return [];
+    return overview.members_by_workspace[memberWorkspace] || [];
+  }, [overview, memberWorkspace]);
 
   const toggleBaseline = (id: string) =>
     setSelectedBaselines((arr) => (arr.includes(id) ? arr.filter((x) => x !== id) : [...arr, id]));
@@ -600,6 +618,39 @@ export default function WorkbenchPage() {
     }
   };
 
+  const upsertMember = async () => {
+    const userId = memberUserId.trim();
+    if (!memberWorkspace || !userId) {
+      setError("Choose workspace and user id");
+      return;
+    }
+    try {
+      await postJson("/api/workbench/member", {
+        workspace_id: memberWorkspace,
+        user_id: userId,
+        role: memberRole,
+      });
+      setMemberUserId("");
+      await load();
+      setMsg(`Member saved: ${userId} (${memberRole})`);
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  const removeMember = async (workspaceId: string, userId: string) => {
+    try {
+      await postJson("/api/workbench/member", {
+        workspace_id: workspaceId,
+        user_id: userId,
+      }, "DELETE");
+      await load();
+      setMsg(`Member removed: ${userId}`);
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
   return (
     <main className="min-h-screen bg-near-black text-ivory p-6">
       <h1 className="text-3xl mb-3">OpenLVM Workbench</h1>
@@ -713,6 +764,43 @@ export default function WorkbenchPage() {
           </div>
         </section>
       </div>
+
+      <section className="border border-border-dark rounded-xl p-4 mt-4">
+        <h2 className="text-xl mb-2">Workspace Members</h2>
+        <div className="grid gap-2 md:grid-cols-4 mb-3">
+          <select className="bg-dark-surface p-2 rounded" value={memberWorkspace} onChange={(e) => setMemberWorkspace(e.target.value)}>
+            {(overview?.workspaces || []).map((w) => <option key={w.workspace_id} value={w.workspace_id}>{w.name}</option>)}
+          </select>
+          <input
+            className="bg-dark-surface p-2 rounded"
+            placeholder="user id"
+            value={memberUserId}
+            onChange={(e) => setMemberUserId(e.target.value)}
+          />
+          <select className="bg-dark-surface p-2 rounded" value={memberRole} onChange={(e) => setMemberRole(e.target.value as "viewer" | "editor" | "admin")}>
+            <option value="viewer">viewer</option>
+            <option value="editor">editor</option>
+            <option value="admin">admin</option>
+          </select>
+          <button className="bg-terracotta px-3 py-1 rounded" onClick={() => void upsertMember()}>Add / Update Member</button>
+        </div>
+        <p className="text-xs text-warm-silver mb-2">Your role in selected workspace: {currentWorkspaceRole || "none"}</p>
+        <div className="space-y-2">
+          {selectedWorkspaceMembers.map((member) => (
+            <div key={`${member.workspace_id}-${member.user_id}`} className="flex items-center justify-between border border-border-dark rounded p-2 text-sm">
+              <span>{member.user_id} ({member.role})</span>
+              <button
+                className="border border-coral px-2 py-1 rounded text-coral"
+                disabled={member.role === "owner"}
+                onClick={() => void removeMember(member.workspace_id, member.user_id)}
+              >
+                Remove
+              </button>
+            </div>
+          ))}
+          {selectedWorkspaceMembers.length === 0 && <p className="text-warm-silver">No explicit members yet (legacy public workspace).</p>}
+        </div>
+      </section>
 
       <section className="border border-border-dark rounded-xl p-4 mt-4">
         <h2 className="text-xl mb-2">Scenarios for Selected Collection</h2>

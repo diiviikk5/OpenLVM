@@ -23,6 +23,7 @@ export async function POST(request: NextRequest) {
       payload.run_id,
       baselineIds.join(","),
       ctx.workspaceId || "",
+      ctx.actorId,
     ]);
     if (typeof data === "object" && data && "error" in data) {
       return contextError("Baseline compare failed", ctx, 500, String((data as { error: string }).error));

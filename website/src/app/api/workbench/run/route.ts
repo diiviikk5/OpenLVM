@@ -38,6 +38,7 @@ export async function POST(request: NextRequest) {
     }
     args.push(payload.chaos_mode || "");
     args.push(ctx.workspaceId || "");
+    args.push(ctx.actorId);
 
     const data = await runWorkbenchBridge("run_collection", args);
     if (typeof data === "object" && data && "error" in data) {

@@ -12,7 +12,7 @@ export async function GET(request: NextRequest) {
     if (!collectionId) {
       return contextError("collection_id is required", ctx, 400);
     }
-    const data = await runWorkbenchBridge("list_scenarios", [collectionId]);
+    const data = await runWorkbenchBridge("list_scenarios", [collectionId, ctx.actorId]);
     if (typeof data === "object" && data && "error" in data) {
       return contextError("Scenario list failed", ctx, 500, String((data as { error: string }).error));
     }

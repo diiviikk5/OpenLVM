@@ -16,6 +16,7 @@ export async function GET(request: NextRequest) {
         artifactId,
         format,
         ctx.workspaceId || "",
+        ctx.actorId,
       ]);
       if (typeof data === "object" && data && "error" in data) {
         return contextError("Artifact download failed", ctx, 500, String((data as { error: string }).error));
@@ -25,7 +26,7 @@ export async function GET(request: NextRequest) {
     if (!collectionId) {
       return contextError("collection_id is required", ctx, 400);
     }
-    const data = await runWorkbenchBridge("list_compare_artifacts", [collectionId, ctx.workspaceId || ""]);
+    const data = await runWorkbenchBridge("list_compare_artifacts", [collectionId, ctx.workspaceId || "", ctx.actorId]);
     if (typeof data === "object" && data && "error" in data) {
       return contextError("Artifact list failed", ctx, 500, String((data as { error: string }).error));
     }
