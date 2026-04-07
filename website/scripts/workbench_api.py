@@ -33,6 +33,13 @@ def _assert_workspace_access(workspace_id: str, actor_id: str, min_role: str) ->
     return OperatorStore().ensure_workspace_access(workspace_id, user_id, min_role=min_role)
 
 
+def _require_authenticated_actor(actor_id: str) -> str:
+    user_id = _actor_user_id(actor_id)
+    if user_id == "anonymous":
+        raise PermissionError("authenticated session required")
+    return user_id
+
+
 def _assert_collection_access(collection_id: str, actor_id: str, min_role: str) -> str:
     from openlvm.operator_store import OperatorStore
 
@@ -128,6 +135,7 @@ def _run_collection(args: list[str]) -> dict:
     chaos_mode = args[2] if len(args) > 2 and args[2] else None
     workspace_scope = args[3] if len(args) > 3 else ""
     actor_id = args[4] if len(args) > 4 else "system"
+    _require_authenticated_actor(actor_id)
     _assert_collection_access(collection_id, actor_id, "editor")
     if workspace_scope:
         _assert_collection_workspace(collection_id, workspace_scope)
@@ -205,6 +213,7 @@ def _save_compare_artifact(args: list[str]) -> dict:
     baseline_id_csv = args[2] if len(args) > 2 else ""
     actor_id = args[3]
     workspace_scope = args[4] if len(args) > 4 else ""
+    _require_authenticated_actor(actor_id)
     _assert_collection_access(collection_id, actor_id, "editor")
     payload, baseline_ids = _compute_compare_payload(
         collection_id, run_id, baseline_id_csv, workspace_scope, actor_id
@@ -297,6 +306,7 @@ def _delete_compare_artifact(args: list[str]) -> dict:
     artifact_id = args[0]
     actor_id = args[1]
     workspace_scope = args[2] if len(args) > 2 else ""
+    _require_authenticated_actor(actor_id)
     store = OperatorStore()
     artifact = store.get_compare_artifact(artifact_id)
     _assert_collection_access(artifact.collection_id, actor_id, "editor")
@@ -315,6 +325,7 @@ def _prune_compare_artifacts(args: list[str]) -> dict:
     keep_latest = int(args[1])
     actor_id = args[2]
     workspace_scope = args[3] if len(args) > 3 else ""
+    _require_authenticated_actor(actor_id)
     _assert_collection_access(collection_id, actor_id, "editor")
     if workspace_scope:
         _assert_collection_workspace(collection_id, workspace_scope)
@@ -390,6 +401,7 @@ def _create_workspace(args: list[str]) -> dict:
     name = args[0]
     actor_id = args[1]
     description = args[2] if len(args) > 2 else ""
+    _require_authenticated_actor(actor_id)
     return OperatorStore().create_workspace(name, description, actor_id=actor_id).model_dump()
 
 
@@ -402,6 +414,7 @@ def _update_workspace(args: list[str]) -> dict:
     actor_id = args[1]
     name = args[2] if len(args) > 2 and args[2] else None
     description = args[3] if len(args) > 3 and args[3] else None
+    _require_authenticated_actor(actor_id)
     _assert_workspace_access(workspace_id, actor_id, "admin")
     return OperatorStore().update_workspace(
         workspace_id,
@@ -418,6 +431,7 @@ def _delete_workspace(args: list[str]) -> dict:
 
     workspace_id = args[0]
     actor_id = args[1]
+    _require_authenticated_actor(actor_id)
     _assert_workspace_access(workspace_id, actor_id, "owner")
     deleted = OperatorStore().delete_workspace(workspace_id, actor_id=actor_id)
     return {"deleted": deleted}
@@ -432,6 +446,7 @@ def _create_collection(args: list[str]) -> dict:
     name = args[1]
     actor_id = args[2]
     description = args[3] if len(args) > 3 else ""
+    _require_authenticated_actor(actor_id)
     _assert_workspace_access(workspace_id, actor_id, "editor")
     return OperatorStore().create_collection(workspace_id, name, description, actor_id=actor_id).model_dump()
 
@@ -445,6 +460,7 @@ def _update_collection(args: list[str]) -> dict:
     actor_id = args[1]
     name = args[2] if len(args) > 2 and args[2] else None
     description = args[3] if len(args) > 3 and args[3] else None
+    _require_authenticated_actor(actor_id)
     _assert_collection_access(collection_id, actor_id, "editor")
     return OperatorStore().update_collection(
         collection_id,
@@ -461,6 +477,7 @@ def _delete_collection(args: list[str]) -> dict:
 
     collection_id = args[0]
     actor_id = args[1]
+    _require_authenticated_actor(actor_id)
     _assert_collection_access(collection_id, actor_id, "admin")
     deleted = OperatorStore().delete_collection(collection_id, actor_id=actor_id)
     return {"deleted": deleted}
@@ -476,6 +493,7 @@ def _save_scenario(args: list[str]) -> dict:
     config_path = _resolve_config_path(args[2])
     input_text = args[3]
     actor_id = args[4]
+    _require_authenticated_actor(actor_id)
     _assert_collection_access(collection_id, actor_id, "editor")
     return OperatorStore().save_scenario(
         collection_id,
@@ -495,6 +513,7 @@ def _save_baseline(args: list[str]) -> dict:
     run_id = args[1]
     label = args[2]
     actor_id = args[3]
+    _require_authenticated_actor(actor_id)
     _assert_collection_access(collection_id, actor_id, "editor")
     return OperatorStore().create_baseline(collection_id, run_id, label, actor_id=actor_id).model_dump()
 
@@ -521,6 +540,7 @@ def _update_scenario(args: list[str]) -> dict:
     config_path = _resolve_config_path(args[2])
     input_text = args[3]
     actor_id = args[4]
+    _require_authenticated_actor(actor_id)
     scenario = OperatorStore().get_saved_scenario(scenario_id)
     _assert_collection_access(scenario.collection_id, actor_id, "editor")
     return OperatorStore().update_saved_scenario(
@@ -538,6 +558,7 @@ def _delete_scenario(args: list[str]) -> dict:
     from openlvm.operator_store import OperatorStore
 
     store = OperatorStore()
+    _require_authenticated_actor(args[1])
     scenario = store.get_saved_scenario(args[0])
     _assert_collection_access(scenario.collection_id, args[1], "editor")
     deleted = store.delete_saved_scenario(args[0], actor_id=args[1])
@@ -551,6 +572,7 @@ def _list_workspace_members(args: list[str]) -> dict:
 
     workspace_id = args[0]
     actor_id = args[1]
+    _require_authenticated_actor(actor_id)
     _assert_workspace_access(workspace_id, actor_id, "viewer")
     members = OperatorStore().list_workspace_members(workspace_id)
     return {"members": [member.model_dump() for member in members]}
@@ -565,6 +587,7 @@ def _upsert_workspace_member(args: list[str]) -> dict:
     user_id = args[1]
     role = args[2]
     actor_id = args[3]
+    _require_authenticated_actor(actor_id)
     _assert_workspace_access(workspace_id, actor_id, "admin")
     member = OperatorStore().upsert_workspace_member(
         workspace_id,
@@ -583,6 +606,7 @@ def _remove_workspace_member(args: list[str]) -> dict:
     workspace_id = args[0]
     user_id = args[1]
     actor_id = args[2]
+    _require_authenticated_actor(actor_id)
     _assert_workspace_access(workspace_id, actor_id, "admin")
     deleted = OperatorStore().remove_workspace_member(workspace_id, user_id, actor_id=actor_id)
     return {"deleted": deleted, "workspace_id": workspace_id, "user_id": user_id}
