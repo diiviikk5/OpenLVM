@@ -69,6 +69,7 @@ Available API routes:
 - `GET/POST/PATCH/DELETE /api/workbench/scenario`
 - `POST /api/workbench/baseline`
 - `GET/POST/DELETE /api/workbench/artifact` (save/list/download/delete/prune compare artifacts)
+- `GET/POST/DELETE /api/workbench/member` (workspace member list/upsert/remove with role checks)
 - `GET/POST/DELETE /api/workbench/session` (signed session cookie bootstrap/rotation/clear)
 
 `POST /api/workbench/compare` accepts optional `baseline_ids` to compare one candidate run against multiple saved baselines in a single call.
@@ -85,6 +86,7 @@ Auth-ready API boundaries:
 - You can also pass `x-openlvm-session-id`; mutating API calls now use `actor_id=user#session` for audit-safe context propagation.
 - `x-openlvm-workspace-id` is now enforced for workbench overview/run/compare routes as a workspace scope boundary.
 - Workbench now bootstraps a signed cookie session via `/api/workbench/session`; header-based identity remains as fallback.
+- Workspace roles are now enforced for mutating actions (`viewer`, `editor`, `admin`, `owner`) in both API bridge and UI affordances.
 
 Run tests:
 
