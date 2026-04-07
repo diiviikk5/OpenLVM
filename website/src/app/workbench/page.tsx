@@ -99,6 +99,13 @@ type Overview = {
   }>;
 };
 
+type SessionState = {
+  user_id: string;
+  session_id: string;
+  actor_id: string;
+  authenticated: boolean;
+};
+
 async function fetchOverview(): Promise<Overview> {
   const res = await fetch("/api/workbench/overview", { cache: "no-store" });
   const data = await res.json();
@@ -122,6 +129,7 @@ export default function WorkbenchPage() {
   const [error, setError] = useState("");
   const [msg, setMsg] = useState("");
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [sessionState, setSessionState] = useState<SessionState | null>(null);
 
   const [selectedCollection, setSelectedCollection] = useState("");
   const [selectedRun, setSelectedRun] = useState("");
@@ -176,6 +184,15 @@ export default function WorkbenchPage() {
   useEffect(() => {
     void (async () => {
       try {
+        const sessionRes = await fetch("/api/workbench/session", { cache: "no-store" });
+        const sessionData = (await sessionRes.json()) as SessionState;
+        let effectiveSession = sessionData;
+        if (!sessionData.authenticated || sessionData.user_id === "anonymous") {
+          const created = await postJson<SessionState>("/api/workbench/session", {});
+          effectiveSession = created;
+        }
+        setSessionState(effectiveSession);
+
         const data = await fetchOverview();
         setOverview(data);
         if (data.workspaces[0]) setCollectionWorkspace(data.workspaces[0].workspace_id);
@@ -512,6 +529,11 @@ export default function WorkbenchPage() {
   return (
     <main className="min-h-screen bg-near-black text-ivory p-6">
       <h1 className="text-3xl mb-3">OpenLVM Workbench</h1>
+      {sessionState && (
+        <p className="text-xs text-warm-silver mb-2">
+          session {sessionState.user_id} / {sessionState.session_id}
+        </p>
+      )}
       {error && <p className="text-coral mb-3">{error}</p>}
       {msg && <p className="text-accent-emerald mb-3">{msg}</p>}
 
