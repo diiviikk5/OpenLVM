@@ -62,6 +62,15 @@ type TraceEvent = {
   type: string;
   payload: Record<string, unknown>;
 };
+type CompareHistoryEntry = {
+  id: string;
+  collection_id: string;
+  candidate_run_id: string;
+  baseline_ids: string[];
+  baseline_count: number;
+  source: "compare" | "artifact_replay" | "artifact_rerun";
+  created_at: string;
+};
 type RunInspection = {
   run: {
     run_id: string;
@@ -173,6 +182,8 @@ export default function WorkbenchPage() {
   const [quickRunning, setQuickRunning] = useState(false);
   const [quickLastRun, setQuickLastRun] = useState<Run | null>(null);
   const [artifactPresetId, setArtifactPresetId] = useState("");
+  const [selectedArtifactIds, setSelectedArtifactIds] = useState<string[]>([]);
+  const [compareHistory, setCompareHistory] = useState<CompareHistoryEntry[]>([]);
 
   const [workspaceName, setWorkspaceName] = useState("");
   const [collectionWorkspace, setCollectionWorkspace] = useState("");
@@ -273,11 +284,15 @@ export default function WorkbenchPage() {
   useEffect(() => {
     if (!compareArtifacts.length) {
       setArtifactPresetId("");
+      setSelectedArtifactIds([]);
       return;
     }
     if (!artifactPresetId || !compareArtifacts.some((row) => row.artifact_id === artifactPresetId)) {
       setArtifactPresetId(compareArtifacts[0].artifact_id);
     }
+    setSelectedArtifactIds((current) =>
+      current.filter((artifactId) => compareArtifacts.some((row) => row.artifact_id === artifactId))
+    );
   }, [compareArtifacts, artifactPresetId]);
 
   const workspaceNames = useMemo(() => {
@@ -321,6 +336,26 @@ export default function WorkbenchPage() {
 
   const toggleBaseline = (id: string) =>
     setSelectedBaselines((arr) => (arr.includes(id) ? arr.filter((x) => x !== id) : [...arr, id]));
+  const toggleArtifactSelection = (id: string) =>
+    setSelectedArtifactIds((arr) => (arr.includes(id) ? arr.filter((x) => x !== id) : [...arr, id]));
+  const appendCompareHistory = (
+    source: CompareHistoryEntry["source"],
+    collectionId: string,
+    candidateRunId: string,
+    baselineIds: string[],
+    baselineCount: number
+  ) => {
+    const entry: CompareHistoryEntry = {
+      id: `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+      source,
+      collection_id: collectionId,
+      candidate_run_id: candidateRunId,
+      baseline_ids: baselineIds,
+      baseline_count: baselineCount,
+      created_at: new Date().toISOString(),
+    };
+    setCompareHistory((rows) => [entry, ...rows].slice(0, 50));
+  };
   const selectLatestBaselines = (count: number) => {
     const ids = [...baselines]
       .sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime())
@@ -665,17 +700,25 @@ export default function WorkbenchPage() {
       if (!res.ok || data.error || !data.candidate_run_id) {
         throw new Error(data.error || "artifact replay failed");
       }
+      const targetCollectionId = data.collection_id || selectedCollection;
       if (data.collection_id) {
         setSelectedCollection(data.collection_id);
       }
       setSelectedRun(data.candidate_run_id);
       setSelectedBaselines(data.baseline_ids || []);
       const resp = await postJson<CompareResponse>("/api/workbench/compare", {
-        collection_id: data.collection_id || selectedCollection,
+        collection_id: targetCollectionId,
         run_id: data.candidate_run_id,
         baseline_ids: data.baseline_ids || [],
       });
       setCompare(resp);
+      appendCompareHistory(
+        "artifact_replay",
+        targetCollectionId,
+        data.candidate_run_id,
+        data.baseline_ids || [],
+        resp.diffs.length
+      );
       setMsg(`Replayed compare from artifact ${artifactId}`);
     } catch (e) {
       setError(String(e));
@@ -700,6 +743,53 @@ export default function WorkbenchPage() {
       setSelectedRun(data.candidate_run_id);
       setSelectedBaselines(data.baseline_ids || []);
       setMsg(`Preset loaded from artifact ${artifactId}`);
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  const rerunAndCompareFromArtifact = async (artifactId: string) => {
+    try {
+      const res = await fetch(`/api/workbench/artifact?artifact_id=${encodeURIComponent(artifactId)}&format=json`, { cache: "no-store" });
+      const data = (await res.json()) as {
+        candidate_run_id?: string;
+        baseline_ids?: string[];
+        collection_id?: string;
+        error?: string;
+      };
+      if (!res.ok || data.error || !data.collection_id) {
+        throw new Error(data.error || "artifact context load failed");
+      }
+      const run = await postJson<Run>("/api/workbench/run", { collection_id: data.collection_id });
+      setSelectedCollection(data.collection_id);
+      setSelectedRun(run.run_id);
+      setBaselineRun(run.run_id);
+      setLastRunId(run.run_id);
+      setSelectedBaselines(data.baseline_ids || []);
+      const resp = await postJson<CompareResponse>("/api/workbench/compare", {
+        collection_id: data.collection_id,
+        run_id: run.run_id,
+        baseline_ids: data.baseline_ids || [],
+      });
+      setCompare(resp);
+      appendCompareHistory("artifact_rerun", data.collection_id, run.run_id, data.baseline_ids || [], resp.diffs.length);
+      await load();
+      setMsg(`Re-run complete from artifact ${artifactId}: ${run.run_id}`);
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  const deleteSelectedArtifacts = async () => {
+    if (!selectedArtifactIds.length) return;
+    try {
+      const result = await postJson<{ deleted_count: number }>(
+        "/api/workbench/artifact",
+        { artifact_ids: selectedArtifactIds },
+        "DELETE"
+      );
+      await load();
+      setMsg(`Artifacts deleted: ${result.deleted_count}`);
     } catch (e) {
       setError(String(e));
     }
@@ -989,7 +1079,7 @@ export default function WorkbenchPage() {
           <input className="bg-dark-surface p-2 rounded flex-1" placeholder="Baseline run id" value={baselineRun} onChange={(e) => setBaselineRun(e.target.value)} />
           <input className="bg-dark-surface p-2 rounded w-40" placeholder="Label" value={baselineLabel} onChange={(e) => setBaselineLabel(e.target.value)} />
           <button className="border border-border-dark px-3 py-1 rounded disabled:opacity-50" disabled={!canEditSelectedCollection} onClick={async () => { try { await postJson("/api/workbench/baseline", { collection_id: selectedCollection, run_id: baselineRun, label: baselineLabel }); await load(); setMsg("Baseline saved"); } catch (e) { setError(String(e)); } }}>Save Baseline</button>
-          <button className="bg-terracotta px-3 py-1 rounded disabled:opacity-50" disabled={isComparing || !canViewSelectedCollection} onClick={async () => { try { setIsComparing(true); const resp = await postJson<CompareResponse>("/api/workbench/compare", { collection_id: selectedCollection, run_id: selectedRun, baseline_ids: selectedBaselines }); setCompare(resp); setMsg(`Compared ${resp.diffs.length} baseline(s)`); } catch (e) { setError(String(e)); } finally { setIsComparing(false); } }}>{isComparing ? "Comparing..." : "Compare"}</button>
+          <button className="bg-terracotta px-3 py-1 rounded disabled:opacity-50" disabled={isComparing || !canViewSelectedCollection} onClick={async () => { try { setIsComparing(true); const resp = await postJson<CompareResponse>("/api/workbench/compare", { collection_id: selectedCollection, run_id: selectedRun, baseline_ids: selectedBaselines }); setCompare(resp); appendCompareHistory("compare", selectedCollection, selectedRun, selectedBaselines, resp.diffs.length); setMsg(`Compared ${resp.diffs.length} baseline(s)`); } catch (e) { setError(String(e)); } finally { setIsComparing(false); } }}>{isComparing ? "Comparing..." : "Compare"}</button>
         </div>
         {lastRunId && <p className="mt-2 text-sm text-accent-emerald">Latest run: {lastRunId}</p>}
         <div className="mt-3 p-2 border border-border-dark rounded">
@@ -1190,15 +1280,64 @@ export default function WorkbenchPage() {
       )}
 
       <section className="border border-border-dark rounded-xl p-4 mt-4">
+        <h2 className="text-xl mb-2">Compare History</h2>
+        <div className="space-y-2 text-sm max-h-56 overflow-auto">
+          {compareHistory.map((entry) => (
+            <div key={entry.id} className="flex items-center justify-between border border-border-dark rounded p-2">
+              <div>
+                <div className="text-warm-silver">
+                  {new Date(entry.created_at).toLocaleString()} | {entry.source}
+                </div>
+                <div>
+                  {entry.collection_id} | candidate {entry.candidate_run_id} | baselines {entry.baseline_count}
+                </div>
+              </div>
+              <button
+                className="border border-border-dark px-2 py-1 rounded"
+                onClick={() => {
+                  setSelectedCollection(entry.collection_id);
+                  setSelectedRun(entry.candidate_run_id);
+                  setSelectedBaselines(entry.baseline_ids);
+                }}
+              >
+                Load
+              </button>
+            </div>
+          ))}
+          {compareHistory.length === 0 && <p className="text-warm-silver">No compare history yet.</p>}
+        </div>
+      </section>
+
+      <section className="border border-border-dark rounded-xl p-4 mt-4">
         <div className="flex items-center justify-between gap-2 mb-2">
           <h2 className="text-xl">Saved Compare Artifacts</h2>
           <div className="flex gap-2 items-center">
+            <button
+              className="border border-border-dark px-3 py-1 rounded text-sm disabled:opacity-50"
+              disabled={!compareArtifacts.length}
+              onClick={() => setSelectedArtifactIds(compareArtifacts.map((row) => row.artifact_id))}
+            >
+              Select All
+            </button>
+            <button
+              className="border border-border-dark px-3 py-1 rounded text-sm"
+              onClick={() => setSelectedArtifactIds([])}
+            >
+              Clear
+            </button>
             <input
               className="bg-dark-surface p-2 rounded text-sm w-24"
               value={pruneKeepLatest}
               onChange={(e) => setPruneKeepLatest(e.target.value)}
               placeholder="keep"
             />
+            <button
+              className="border border-coral px-3 py-1 rounded text-sm text-coral disabled:opacity-50"
+              disabled={!canEditSelectedCollection || selectedArtifactIds.length === 0}
+              onClick={() => void deleteSelectedArtifacts()}
+            >
+              Delete Selected
+            </button>
             <button className="border border-border-dark px-3 py-1 rounded text-sm disabled:opacity-50" disabled={!canEditSelectedCollection} onClick={() => void pruneSavedArtifacts()}>
               Prune
             </button>
@@ -1207,14 +1346,22 @@ export default function WorkbenchPage() {
         <div className="space-y-2 text-sm max-h-56 overflow-auto">
           {compareArtifacts.map((artifact) => (
             <div key={artifact.artifact_id} className="flex items-center justify-between border border-border-dark rounded p-2">
-              <div>
+              <div className="flex items-start gap-2">
+                <input
+                  type="checkbox"
+                  checked={selectedArtifactIds.includes(artifact.artifact_id)}
+                  onChange={() => toggleArtifactSelection(artifact.artifact_id)}
+                />
+                <div>
                 <div>{artifact.filename}</div>
                 <div className="text-warm-silver">
                   {artifact.candidate_run_id} | baselines {artifact.baseline_ids.length} | {new Date(artifact.created_at).toLocaleString()}
                 </div>
+                </div>
               </div>
               <div className="flex gap-2">
                 <button className="border border-border-dark px-2 py-1 rounded disabled:opacity-50" disabled={!canViewSelectedCollection} onClick={() => void replayFromArtifact(artifact.artifact_id)}>Replay</button>
+                <button className="border border-border-dark px-2 py-1 rounded disabled:opacity-50" disabled={!canEditSelectedCollection} onClick={() => void rerunAndCompareFromArtifact(artifact.artifact_id)}>Re-run + Compare</button>
                 <button className="border border-border-dark px-2 py-1 rounded disabled:opacity-50" disabled={!canViewSelectedCollection} onClick={() => void downloadSavedArtifact(artifact.artifact_id, "json")}>JSON</button>
                 <button className="border border-border-dark px-2 py-1 rounded disabled:opacity-50" disabled={!canViewSelectedCollection} onClick={() => void downloadSavedArtifact(artifact.artifact_id, "csv")}>CSV</button>
                 <button className="border border-coral px-2 py-1 rounded text-coral disabled:opacity-50" disabled={!canEditSelectedCollection} onClick={() => void deleteSavedArtifact(artifact.artifact_id)}>Delete</button>
