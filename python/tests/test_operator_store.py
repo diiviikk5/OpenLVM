@@ -112,3 +112,12 @@ def test_operator_store_workspace_members_and_roles(tmp_path):
     removed = store.remove_workspace_member(workspace.workspace_id, "bob", actor_id="alice#s1")
     assert removed is True
     assert store.get_workspace_member_role(workspace.workspace_id, "bob") is None
+
+
+def test_operator_store_legacy_workspace_stays_accessible(tmp_path):
+    store = OperatorStore(tmp_path / "operator_store.db")
+    workspace = store.create_workspace("Legacy", actor_id="system")
+
+    assert store.list_workspace_members(workspace.workspace_id) == []
+    store.ensure_workspace_access(workspace.workspace_id, "anonymous", min_role="viewer")
+    store.ensure_workspace_access(workspace.workspace_id, "random-user", min_role="admin")
