@@ -769,6 +769,47 @@ class OperatorStore:
                 )
         return deleted > 0
 
+    def delete_compare_artifacts_bulk(
+        self,
+        artifact_ids: list[str],
+        *,
+        actor_id: str = "system",
+    ) -> int:
+        unique_ids = [artifact_id for artifact_id in dict.fromkeys(artifact_ids) if artifact_id]
+        if not unique_ids:
+            return 0
+        with self._connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT artifact_id, collection_id
+                FROM compare_artifacts
+                WHERE artifact_id IN ({",".join("?" for _ in unique_ids)})
+                """,
+                unique_ids,
+            ).fetchall()
+            existing_ids = [row["artifact_id"] for row in rows]
+            if not existing_ids:
+                return 0
+            conn.execute(
+                f"""
+                DELETE FROM compare_artifacts
+                WHERE artifact_id IN ({",".join("?" for _ in existing_ids)})
+                """,
+                existing_ids,
+            )
+            self._insert_audit_event(
+                conn,
+                actor_id=actor_id,
+                action="compare_artifact.bulk_delete",
+                entity_type="compare_artifact",
+                entity_id=existing_ids[0] if len(existing_ids) == 1 else "bulk",
+                details={
+                    "deleted_count": len(existing_ids),
+                    "artifact_ids": existing_ids,
+                },
+            )
+        return len(existing_ids)
+
     def prune_compare_artifacts(
         self,
         collection_id: str,

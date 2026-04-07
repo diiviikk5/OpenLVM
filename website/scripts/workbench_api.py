@@ -316,6 +316,25 @@ def _delete_compare_artifact(args: list[str]) -> dict:
     return {"deleted": deleted, "artifact_id": artifact_id}
 
 
+def _delete_compare_artifacts_bulk(args: list[str]) -> dict:
+    if len(args) < 2:
+        raise ValueError("artifact_ids_csv and actor_id are required")
+    from openlvm.operator_store import OperatorStore
+
+    artifact_ids = [token for token in args[0].split(",") if token]
+    actor_id = args[1]
+    workspace_scope = args[2] if len(args) > 2 else ""
+    _require_authenticated_actor(actor_id)
+    store = OperatorStore()
+    for artifact_id in artifact_ids:
+        artifact = store.get_compare_artifact(artifact_id)
+        _assert_collection_access(artifact.collection_id, actor_id, "editor")
+        if workspace_scope:
+            _assert_collection_workspace(artifact.collection_id, workspace_scope)
+    deleted_count = store.delete_compare_artifacts_bulk(artifact_ids, actor_id=actor_id)
+    return {"deleted_count": deleted_count, "artifact_ids": artifact_ids}
+
+
 def _prune_compare_artifacts(args: list[str]) -> dict:
     if len(args) < 3:
         raise ValueError("collection_id, keep_latest, and actor_id are required")
@@ -638,6 +657,8 @@ def _main() -> int:
             result = _download_compare_artifact(args)
         elif command == "delete_compare_artifact":
             result = _delete_compare_artifact(args)
+        elif command == "delete_compare_artifacts_bulk":
+            result = _delete_compare_artifacts_bulk(args)
         elif command == "prune_compare_artifacts":
             result = _prune_compare_artifacts(args)
         elif command == "create_workspace":

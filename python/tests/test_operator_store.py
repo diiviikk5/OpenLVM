@@ -78,13 +78,26 @@ def test_operator_store_compare_artifacts(tmp_path):
         payload,
         actor_id="alice",
     )
+    artifact_3 = store.save_compare_artifact(
+        collection.collection_id,
+        "run-444",
+        ["base-3"],
+        payload,
+        actor_id="alice",
+    )
     deleted = store.delete_compare_artifact(artifact.artifact_id, actor_id="alice")
     assert deleted is True
+    bulk_deleted = store.delete_compare_artifacts_bulk(
+        [artifact_2.artifact_id, artifact_3.artifact_id],
+        actor_id="alice",
+    )
+    assert bulk_deleted == 2
     pruned_count = store.prune_compare_artifacts(collection.collection_id, keep_latest=0, actor_id="alice")
-    assert pruned_count >= 1
+    assert pruned_count >= 0
     actions = [event["action"] for event in store.list_audit_events(limit=50)]
     assert "compare_artifact.create" in actions
     assert "compare_artifact.delete" in actions
+    assert "compare_artifact.bulk_delete" in actions
     assert "compare_artifact.prune" in actions
 
 

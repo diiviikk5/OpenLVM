@@ -68,6 +68,7 @@ export async function DELETE(request: NextRequest) {
   try {
     const payload = (await request.json()) as {
       artifact_id?: string;
+      artifact_ids?: string[];
       collection_id?: string;
       keep_latest?: number;
     };
@@ -79,6 +80,17 @@ export async function DELETE(request: NextRequest) {
       ]);
       if (typeof data === "object" && data && "error" in data) {
         return contextError("Artifact delete failed", ctx, 500, String((data as { error: string }).error));
+      }
+      return contextJson(data, ctx);
+    }
+    if (Array.isArray(payload.artifact_ids) && payload.artifact_ids.length > 0) {
+      const data = await runWorkbenchBridge("delete_compare_artifacts_bulk", [
+        payload.artifact_ids.join(","),
+        ctx.actorId,
+        ctx.workspaceId || "",
+      ]);
+      if (typeof data === "object" && data && "error" in data) {
+        return contextError("Artifact bulk delete failed", ctx, 500, String((data as { error: string }).error));
       }
       return contextJson(data, ctx);
     }
