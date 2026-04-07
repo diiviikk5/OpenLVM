@@ -327,6 +327,7 @@ export default function WorkbenchPage() {
     return overview.members_by_workspace[memberWorkspace] || [];
   }, [overview, memberWorkspace]);
   const selectedCollectionWorkspaceId = collectionWorkspaceMap[selectedCollection] || "";
+  const selectedCollectionRole = selectedCollectionWorkspaceId ? (effectiveRoleByWorkspace[selectedCollectionWorkspaceId] || "") : "";
   const canEditSelectedCollection = selectedCollectionWorkspaceId ? canInWorkspace(selectedCollectionWorkspaceId, "editor") : false;
   const canAdminSelectedCollection = selectedCollectionWorkspaceId ? canInWorkspace(selectedCollectionWorkspaceId, "admin") : false;
   const canViewSelectedCollection = selectedCollectionWorkspaceId ? canInWorkspace(selectedCollectionWorkspaceId, "viewer") : false;
@@ -877,6 +878,12 @@ export default function WorkbenchPage() {
           <button className="border border-border-dark px-2 py-1 rounded text-xs" onClick={() => void clearSession()}>
             Reset Session
           </button>
+        </div>
+      )}
+      {selectedCollectionWorkspaceId && (
+        <div className="mb-3 text-xs text-warm-silver border border-border-dark rounded p-2">
+          workspace {selectedCollectionWorkspaceId} | role {selectedCollectionRole || "none"} |
+          can run/save {canEditSelectedCollection ? "yes" : "no"} | can manage {canAdminSelectedCollection ? "yes" : "no"}
         </div>
       )}
       {error && <p className="text-coral mb-3">{error}</p>}
