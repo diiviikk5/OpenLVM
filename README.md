@@ -82,8 +82,9 @@ Auth-ready API boundaries:
   - `x-openlvm-session-id`
   - `x-openlvm-actor-id`
   - `x-openlvm-authenticated`
-- You can pass `x-openlvm-user-id` in requests to scope request identity before full auth/session rollout.
-- You can also pass `x-openlvm-session-id`; mutating API calls now use `actor_id=user#session` for audit-safe context propagation.
+- Signed `openlvm_session` cookie is now the default identity source.
+- Header/cookie identity fallback (`x-openlvm-user-id`, `x-openlvm-session-id`, `openlvm_user_id`, `openlvm_session_id`) is disabled by default and can be re-enabled only with `OPENLVM_ALLOW_HEADER_IDENTITY=1`.
+- Mutating API calls use `actor_id=user#session` for audit-safe context propagation.
 - `x-openlvm-workspace-id` is now enforced for workbench overview/run/compare routes as a workspace scope boundary.
 - Workbench now bootstraps a signed cookie session via `/api/workbench/session`; header-based identity remains as fallback.
 - Workspace roles are now enforced for mutating actions (`viewer`, `editor`, `admin`, `owner`) in both API bridge and UI affordances.

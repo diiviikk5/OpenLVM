@@ -12,6 +12,10 @@ export type ApiContext = {
   authenticated: boolean;
 };
 
+function allowHeaderIdentity(): boolean {
+  return process.env.OPENLVM_ALLOW_HEADER_IDENTITY === "1";
+}
+
 export function resolveApiContext(request: NextRequest): ApiContext {
   const sessionToken = request.cookies.get("openlvm_session")?.value;
   const parsedSession = parseSessionToken(sessionToken);
@@ -19,16 +23,17 @@ export function resolveApiContext(request: NextRequest): ApiContext {
   const cookieUserId = request.cookies.get("openlvm_user_id")?.value;
   const headerSessionId = request.headers.get("x-openlvm-session-id");
   const cookieSessionId = request.cookies.get("openlvm_session_id")?.value;
+  const relaxedIdentity = allowHeaderIdentity();
   const userId = (
     parsedSession?.userId ||
-    headerUserId ||
-    cookieUserId ||
+    (relaxedIdentity ? headerUserId : "") ||
+    (relaxedIdentity ? cookieUserId : "") ||
     "anonymous"
   ).trim();
   const sessionId = (
     parsedSession?.sessionId ||
-    headerSessionId ||
-    cookieSessionId ||
+    (relaxedIdentity ? headerSessionId : "") ||
+    (relaxedIdentity ? cookieSessionId : "") ||
     "local-session"
   ).trim();
   const workspaceId = request.headers.get("x-openlvm-workspace-id");
