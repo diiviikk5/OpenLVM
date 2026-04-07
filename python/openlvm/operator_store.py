@@ -231,6 +231,16 @@ class OperatorStore:
         normalized_role = self._normalize_role(role)
         created_at = self._timestamp()
         with self._connect() as conn:
+            current = conn.execute(
+                """
+                SELECT role
+                FROM workspace_members
+                WHERE workspace_id = ? AND user_id = ?
+                """,
+                (workspace_id, user_id),
+            ).fetchone()
+            if current is not None and current["role"] == "owner" and normalized_role != "owner":
+                raise PermissionError("Cannot demote workspace owner")
             conn.execute(
                 """
                 INSERT INTO workspace_members (workspace_id, user_id, role, created_at)

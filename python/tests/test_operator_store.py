@@ -126,6 +126,13 @@ def test_operator_store_workspace_members_and_roles(tmp_path):
     assert removed is True
     assert store.get_workspace_member_role(workspace.workspace_id, "bob") is None
 
+    try:
+        store.upsert_workspace_member(workspace.workspace_id, "alice", "admin", actor_id="alice#s1")
+    except PermissionError:
+        pass
+    else:
+        raise AssertionError("workspace owner should not be demoted")
+
 
 def test_operator_store_legacy_workspace_stays_accessible(tmp_path):
     store = OperatorStore(tmp_path / "operator_store.db")
