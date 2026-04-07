@@ -109,6 +109,13 @@ type SessionState = {
   authenticated: boolean;
 };
 
+const ROLE_RANK: Record<string, number> = {
+  viewer: 1,
+  editor: 2,
+  admin: 3,
+  owner: 4,
+};
+
 async function fetchOverview(): Promise<Overview> {
   const res = await fetch("/api/workbench/overview", { cache: "no-store" });
   const data = await res.json();
@@ -260,14 +267,39 @@ export default function WorkbenchPage() {
     for (const ws of overview?.workspaces || []) map[ws.workspace_id] = ws.name;
     return map;
   }, [overview]);
+  const collectionWorkspaceMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const col of overview?.collections || []) map[col.collection_id] = col.workspace_id;
+    return map;
+  }, [overview]);
+  const effectiveRoleByWorkspace = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const ws of overview?.workspaces || []) {
+      const explicitRole = overview?.user_role_by_workspace?.[ws.workspace_id] || "";
+      const members = overview?.members_by_workspace?.[ws.workspace_id] || [];
+      map[ws.workspace_id] = explicitRole || (members.length === 0 ? "owner" : "");
+    }
+    return map;
+  }, [overview]);
+  const canInWorkspace = (workspaceId: string, minRole: "viewer" | "editor" | "admin" | "owner") => {
+    const role = effectiveRoleByWorkspace[workspaceId] || "";
+    return (ROLE_RANK[role] || 0) >= ROLE_RANK[minRole];
+  };
   const currentWorkspaceRole = useMemo(() => {
-    if (!overview || !memberWorkspace) return "";
-    return overview.user_role_by_workspace[memberWorkspace] || "";
-  }, [overview, memberWorkspace]);
+    if (!memberWorkspace) return "";
+    return effectiveRoleByWorkspace[memberWorkspace] || "";
+  }, [effectiveRoleByWorkspace, memberWorkspace]);
   const selectedWorkspaceMembers = useMemo(() => {
     if (!overview || !memberWorkspace) return [];
     return overview.members_by_workspace[memberWorkspace] || [];
   }, [overview, memberWorkspace]);
+  const selectedCollectionWorkspaceId = collectionWorkspaceMap[selectedCollection] || "";
+  const canEditSelectedCollection = selectedCollectionWorkspaceId ? canInWorkspace(selectedCollectionWorkspaceId, "editor") : false;
+  const canAdminSelectedCollection = selectedCollectionWorkspaceId ? canInWorkspace(selectedCollectionWorkspaceId, "admin") : false;
+  const canViewSelectedCollection = selectedCollectionWorkspaceId ? canInWorkspace(selectedCollectionWorkspaceId, "viewer") : false;
+  const canManageSelectedWorkspace = memberWorkspace ? canInWorkspace(memberWorkspace, "admin") : false;
+  const scenarioCollectionWorkspaceId = collectionWorkspaceMap[scenarioCollection] || "";
+  const canEditScenarioCollection = scenarioCollectionWorkspaceId ? canInWorkspace(scenarioCollectionWorkspaceId, "editor") : false;
 
   const toggleBaseline = (id: string) =>
     setSelectedBaselines((arr) => (arr.includes(id) ? arr.filter((x) => x !== id) : [...arr, id]));
@@ -702,7 +734,8 @@ export default function WorkbenchPage() {
           </button>
           {quickLastRun && (
             <button
-              className="border border-border-dark px-3 py-1 rounded"
+              className="border border-border-dark px-3 py-1 rounded disabled:opacity-50"
+              disabled={!canEditSelectedCollection}
               onClick={async () => {
                 try {
                   await postJson("/api/workbench/baseline", {
@@ -736,15 +769,15 @@ export default function WorkbenchPage() {
           <div className="space-y-2">
             <input className="w-full bg-dark-surface p-2 rounded" placeholder="Workspace name" value={workspaceName} onChange={(e) => setWorkspaceName(e.target.value)} />
             <button className="bg-terracotta px-3 py-1 rounded" onClick={async () => { try { await postJson("/api/workbench/workspace", { name: workspaceName }); setWorkspaceName(""); await load(); setMsg("Workspace created"); } catch (e) { setError(String(e)); } }}>Create Workspace</button>
-            <button className="border border-border-dark px-3 py-1 rounded" onClick={async () => { try { if (!collectionWorkspace || !workspaceName) return; await postJson("/api/workbench/workspace", { workspace_id: collectionWorkspace, name: workspaceName }, "PATCH"); setWorkspaceName(""); await load(); setMsg("Workspace updated"); } catch (e) { setError(String(e)); } }}>Update Selected Workspace</button>
-            <button className="border border-coral px-3 py-1 rounded text-coral" onClick={async () => { try { if (!collectionWorkspace) return; await postJson("/api/workbench/workspace", { workspace_id: collectionWorkspace }, "DELETE"); await load(); setMsg("Workspace deleted"); } catch (e) { setError(String(e)); } }}>Delete Selected Workspace</button>
+            <button className="border border-border-dark px-3 py-1 rounded disabled:opacity-50" disabled={!collectionWorkspace || !canInWorkspace(collectionWorkspace, "admin")} onClick={async () => { try { if (!collectionWorkspace || !workspaceName) return; await postJson("/api/workbench/workspace", { workspace_id: collectionWorkspace, name: workspaceName }, "PATCH"); setWorkspaceName(""); await load(); setMsg("Workspace updated"); } catch (e) { setError(String(e)); } }}>Update Selected Workspace</button>
+            <button className="border border-coral px-3 py-1 rounded text-coral disabled:opacity-50" disabled={!collectionWorkspace || !canInWorkspace(collectionWorkspace, "owner")} onClick={async () => { try { if (!collectionWorkspace) return; await postJson("/api/workbench/workspace", { workspace_id: collectionWorkspace }, "DELETE"); await load(); setMsg("Workspace deleted"); } catch (e) { setError(String(e)); } }}>Delete Selected Workspace</button>
             <select className="w-full bg-dark-surface p-2 rounded" value={collectionWorkspace} onChange={(e) => setCollectionWorkspace(e.target.value)}>
               {(overview?.workspaces || []).map((w) => <option key={w.workspace_id} value={w.workspace_id}>{w.name}</option>)}
             </select>
             <input className="w-full bg-dark-surface p-2 rounded" placeholder="Collection name" value={collectionName} onChange={(e) => setCollectionName(e.target.value)} />
-            <button className="bg-terracotta px-3 py-1 rounded" onClick={async () => { try { const c = await postJson<Collection>("/api/workbench/collection", { workspace_id: collectionWorkspace, name: collectionName }); setCollectionName(""); setSelectedCollection(c.collection_id); setScenarioCollection(c.collection_id); await load(); setMsg("Collection created"); } catch (e) { setError(String(e)); } }}>Create Collection</button>
-            <button className="border border-border-dark px-3 py-1 rounded" onClick={async () => { try { if (!selectedCollection || !collectionName) return; await postJson("/api/workbench/collection", { collection_id: selectedCollection, name: collectionName }, "PATCH"); setCollectionName(""); await load(); setMsg("Collection updated"); } catch (e) { setError(String(e)); } }}>Update Selected Collection</button>
-            <button className="border border-coral px-3 py-1 rounded text-coral" onClick={async () => { try { if (!selectedCollection) return; await postJson("/api/workbench/collection", { collection_id: selectedCollection }, "DELETE"); await load(); setMsg("Collection deleted"); } catch (e) { setError(String(e)); } }}>Delete Selected Collection</button>
+            <button className="bg-terracotta px-3 py-1 rounded disabled:opacity-50" disabled={!collectionWorkspace || !canInWorkspace(collectionWorkspace, "editor")} onClick={async () => { try { const c = await postJson<Collection>("/api/workbench/collection", { workspace_id: collectionWorkspace, name: collectionName }); setCollectionName(""); setSelectedCollection(c.collection_id); setScenarioCollection(c.collection_id); await load(); setMsg("Collection created"); } catch (e) { setError(String(e)); } }}>Create Collection</button>
+            <button className="border border-border-dark px-3 py-1 rounded disabled:opacity-50" disabled={!canEditSelectedCollection} onClick={async () => { try { if (!selectedCollection || !collectionName) return; await postJson("/api/workbench/collection", { collection_id: selectedCollection, name: collectionName }, "PATCH"); setCollectionName(""); await load(); setMsg("Collection updated"); } catch (e) { setError(String(e)); } }}>Update Selected Collection</button>
+            <button className="border border-coral px-3 py-1 rounded text-coral disabled:opacity-50" disabled={!canAdminSelectedCollection} onClick={async () => { try { if (!selectedCollection) return; await postJson("/api/workbench/collection", { collection_id: selectedCollection }, "DELETE"); await load(); setMsg("Collection deleted"); } catch (e) { setError(String(e)); } }}>Delete Selected Collection</button>
           </div>
         </section>
 
@@ -758,7 +791,7 @@ export default function WorkbenchPage() {
             <input className="w-full bg-dark-surface p-2 rounded" placeholder="Config path" value={scenarioConfig} onChange={(e) => setScenarioConfig(e.target.value)} />
             <textarea className="w-full bg-dark-surface p-2 rounded" placeholder="Input" value={scenarioInput} onChange={(e) => setScenarioInput(e.target.value)} />
             <div className="flex gap-2">
-              <button className="bg-terracotta px-3 py-1 rounded" onClick={async () => { try { if (scenarioEditId) { await postJson("/api/workbench/scenario", { scenario_id: scenarioEditId, name: scenarioName, config_path: scenarioConfig, input_text: scenarioInput }, "PATCH"); } else { await postJson("/api/workbench/scenario", { collection_id: scenarioCollection, name: scenarioName, config_path: scenarioConfig, input_text: scenarioInput }); } setScenarioEditId(""); setScenarioName(""); setScenarioInput(""); setScenarioConfig("examples/swarm.yaml"); await load(); setMsg("Scenario saved"); } catch (e) { setError(String(e)); } }}>{scenarioEditId ? "Update" : "Save"}</button>
+              <button className="bg-terracotta px-3 py-1 rounded disabled:opacity-50" disabled={!canEditScenarioCollection} onClick={async () => { try { if (scenarioEditId) { await postJson("/api/workbench/scenario", { scenario_id: scenarioEditId, name: scenarioName, config_path: scenarioConfig, input_text: scenarioInput }, "PATCH"); } else { await postJson("/api/workbench/scenario", { collection_id: scenarioCollection, name: scenarioName, config_path: scenarioConfig, input_text: scenarioInput }); } setScenarioEditId(""); setScenarioName(""); setScenarioInput(""); setScenarioConfig("examples/swarm.yaml"); await load(); setMsg("Scenario saved"); } catch (e) { setError(String(e)); } }}>{scenarioEditId ? "Update" : "Save"}</button>
               {scenarioEditId && <button className="border border-border-dark px-3 py-1 rounded" onClick={() => { setScenarioEditId(""); setScenarioName(""); setScenarioInput(""); setScenarioConfig("examples/swarm.yaml"); }}>Cancel</button>}
             </div>
           </div>
@@ -782,7 +815,7 @@ export default function WorkbenchPage() {
             <option value="editor">editor</option>
             <option value="admin">admin</option>
           </select>
-          <button className="bg-terracotta px-3 py-1 rounded" onClick={() => void upsertMember()}>Add / Update Member</button>
+          <button className="bg-terracotta px-3 py-1 rounded disabled:opacity-50" disabled={!canManageSelectedWorkspace} onClick={() => void upsertMember()}>Add / Update Member</button>
         </div>
         <p className="text-xs text-warm-silver mb-2">Your role in selected workspace: {currentWorkspaceRole || "none"}</p>
         <div className="space-y-2">
@@ -791,7 +824,7 @@ export default function WorkbenchPage() {
               <span>{member.user_id} ({member.role})</span>
               <button
                 className="border border-coral px-2 py-1 rounded text-coral"
-                disabled={member.role === "owner"}
+                disabled={member.role === "owner" || !canManageSelectedWorkspace}
                 onClick={() => void removeMember(member.workspace_id, member.user_id)}
               >
                 Remove
@@ -813,7 +846,7 @@ export default function WorkbenchPage() {
               <div>{s.name}</div>
               <div className="flex gap-2">
                 <button className="border border-border-dark px-2 py-1 rounded" onClick={() => setEditing(s)}>Edit</button>
-                <button className="border border-coral px-2 py-1 rounded text-coral" onClick={async () => { try { await postJson("/api/workbench/scenario", { scenario_id: s.scenario_id }, "DELETE"); await load(); setMsg("Scenario deleted"); } catch (e) { setError(String(e)); } }}>Delete</button>
+                <button className="border border-coral px-2 py-1 rounded text-coral disabled:opacity-50" disabled={!canEditSelectedCollection} onClick={async () => { try { await postJson("/api/workbench/scenario", { scenario_id: s.scenario_id }, "DELETE"); await load(); setMsg("Scenario deleted"); } catch (e) { setError(String(e)); } }}>Delete</button>
               </div>
             </div>
           ))}
@@ -832,7 +865,7 @@ export default function WorkbenchPage() {
           <select className="bg-dark-surface p-2 rounded" value={selectedRun} onChange={(e) => setSelectedRun(e.target.value)}>
             {(overview?.recent_runs || []).map((r) => <option key={r.run_id} value={r.run_id}>{r.run_id}</option>)}
           </select>
-          <button className="bg-terracotta px-3 py-1 rounded" disabled={isRunning} onClick={async () => { try { setIsRunning(true); const run = await postJson<Run>("/api/workbench/run", { collection_id: selectedCollection }); setLastRunId(run.run_id); setSelectedRun(run.run_id); setBaselineRun(run.run_id); await load(); setMsg(`Run complete: ${run.run_id}`); } catch (e) { setError(String(e)); } finally { setIsRunning(false); } }}>{isRunning ? "Running..." : "Run Collection"}</button>
+          <button className="bg-terracotta px-3 py-1 rounded disabled:opacity-50" disabled={isRunning || !canEditSelectedCollection} onClick={async () => { try { setIsRunning(true); const run = await postJson<Run>("/api/workbench/run", { collection_id: selectedCollection }); setLastRunId(run.run_id); setSelectedRun(run.run_id); setBaselineRun(run.run_id); await load(); setMsg(`Run complete: ${run.run_id}`); } catch (e) { setError(String(e)); } finally { setIsRunning(false); } }}>{isRunning ? "Running..." : "Run Collection"}</button>
         </div>
         <div className="mt-2 p-2 border border-border-dark rounded">
           <p className="text-sm text-warm-silver mb-1">Choose baseline(s)</p>
@@ -869,8 +902,8 @@ export default function WorkbenchPage() {
         <div className="mt-2 flex gap-2">
           <input className="bg-dark-surface p-2 rounded flex-1" placeholder="Baseline run id" value={baselineRun} onChange={(e) => setBaselineRun(e.target.value)} />
           <input className="bg-dark-surface p-2 rounded w-40" placeholder="Label" value={baselineLabel} onChange={(e) => setBaselineLabel(e.target.value)} />
-          <button className="border border-border-dark px-3 py-1 rounded" onClick={async () => { try { await postJson("/api/workbench/baseline", { collection_id: selectedCollection, run_id: baselineRun, label: baselineLabel }); await load(); setMsg("Baseline saved"); } catch (e) { setError(String(e)); } }}>Save Baseline</button>
-          <button className="bg-terracotta px-3 py-1 rounded" disabled={isComparing} onClick={async () => { try { setIsComparing(true); const resp = await postJson<CompareResponse>("/api/workbench/compare", { collection_id: selectedCollection, run_id: selectedRun, baseline_ids: selectedBaselines }); setCompare(resp); setMsg(`Compared ${resp.diffs.length} baseline(s)`); } catch (e) { setError(String(e)); } finally { setIsComparing(false); } }}>{isComparing ? "Comparing..." : "Compare"}</button>
+          <button className="border border-border-dark px-3 py-1 rounded disabled:opacity-50" disabled={!canEditSelectedCollection} onClick={async () => { try { await postJson("/api/workbench/baseline", { collection_id: selectedCollection, run_id: baselineRun, label: baselineLabel }); await load(); setMsg("Baseline saved"); } catch (e) { setError(String(e)); } }}>Save Baseline</button>
+          <button className="bg-terracotta px-3 py-1 rounded disabled:opacity-50" disabled={isComparing || !canViewSelectedCollection} onClick={async () => { try { setIsComparing(true); const resp = await postJson<CompareResponse>("/api/workbench/compare", { collection_id: selectedCollection, run_id: selectedRun, baseline_ids: selectedBaselines }); setCompare(resp); setMsg(`Compared ${resp.diffs.length} baseline(s)`); } catch (e) { setError(String(e)); } finally { setIsComparing(false); } }}>{isComparing ? "Comparing..." : "Compare"}</button>
         </div>
         {lastRunId && <p className="mt-2 text-sm text-accent-emerald">Latest run: {lastRunId}</p>}
       </section>
@@ -958,7 +991,7 @@ export default function WorkbenchPage() {
           <div className="mb-2 flex items-center justify-between gap-2">
             <h2 className="text-xl">Multi-Baseline Compare</h2>
             <div className="flex gap-2">
-              <button className="border border-border-dark px-3 py-1 rounded text-sm" disabled={isSavingArtifact} onClick={() => void saveCompareArtifact()}>
+              <button className="border border-border-dark px-3 py-1 rounded text-sm disabled:opacity-50" disabled={isSavingArtifact || !canEditSelectedCollection} onClick={() => void saveCompareArtifact()}>
                 {isSavingArtifact ? "Saving..." : "Save Artifact"}
               </button>
               <button className="border border-border-dark px-3 py-1 rounded text-sm" onClick={exportCompareJson}>Export JSON</button>
@@ -1004,7 +1037,7 @@ export default function WorkbenchPage() {
               onChange={(e) => setPruneKeepLatest(e.target.value)}
               placeholder="keep"
             />
-            <button className="border border-border-dark px-3 py-1 rounded text-sm" onClick={() => void pruneSavedArtifacts()}>
+            <button className="border border-border-dark px-3 py-1 rounded text-sm disabled:opacity-50" disabled={!canEditSelectedCollection} onClick={() => void pruneSavedArtifacts()}>
               Prune
             </button>
           </div>
@@ -1019,10 +1052,10 @@ export default function WorkbenchPage() {
                 </div>
               </div>
               <div className="flex gap-2">
-                <button className="border border-border-dark px-2 py-1 rounded" onClick={() => void replayFromArtifact(artifact.artifact_id)}>Replay</button>
-                <button className="border border-border-dark px-2 py-1 rounded" onClick={() => void downloadSavedArtifact(artifact.artifact_id, "json")}>JSON</button>
-                <button className="border border-border-dark px-2 py-1 rounded" onClick={() => void downloadSavedArtifact(artifact.artifact_id, "csv")}>CSV</button>
-                <button className="border border-coral px-2 py-1 rounded text-coral" onClick={() => void deleteSavedArtifact(artifact.artifact_id)}>Delete</button>
+                <button className="border border-border-dark px-2 py-1 rounded disabled:opacity-50" disabled={!canViewSelectedCollection} onClick={() => void replayFromArtifact(artifact.artifact_id)}>Replay</button>
+                <button className="border border-border-dark px-2 py-1 rounded disabled:opacity-50" disabled={!canViewSelectedCollection} onClick={() => void downloadSavedArtifact(artifact.artifact_id, "json")}>JSON</button>
+                <button className="border border-border-dark px-2 py-1 rounded disabled:opacity-50" disabled={!canViewSelectedCollection} onClick={() => void downloadSavedArtifact(artifact.artifact_id, "csv")}>CSV</button>
+                <button className="border border-coral px-2 py-1 rounded text-coral disabled:opacity-50" disabled={!canEditSelectedCollection} onClick={() => void deleteSavedArtifact(artifact.artifact_id)}>Delete</button>
               </div>
             </div>
           ))}
