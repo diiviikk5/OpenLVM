@@ -79,6 +79,14 @@ type ArenaRun = {
   status: string;
   created_at: string;
   actor_id: string;
+  metadata?: {
+    x402?: {
+      x402_status?: string;
+      amount_usdc?: number;
+      tx_ref?: string;
+    };
+    trace_commitment?: string;
+  };
 };
 type RunInspection = {
   run: {
@@ -1369,6 +1377,14 @@ export default function WorkbenchPage() {
               <div>
                 <div>{row.arena_run_id}</div>
                 <div className="text-warm-silver">{row.agent_address} | {row.scenario_id}</div>
+                {row.metadata?.x402?.tx_ref && (
+                  <div className="text-warm-silver text-xs">
+                    x402 {row.metadata.x402.x402_status} {row.metadata.x402.amount_usdc} USDC ({row.metadata.x402.tx_ref})
+                  </div>
+                )}
+                {row.metadata?.trace_commitment && (
+                  <div className="text-warm-silver text-xs">commitment {row.metadata.trace_commitment}</div>
+                )}
               </div>
               <div className="text-right">
                 <div>{row.score.toFixed(2)} ({row.status})</div>

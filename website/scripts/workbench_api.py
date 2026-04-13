@@ -600,6 +600,7 @@ def _remove_workspace_member(args: list[str]) -> dict:
 def _arena_run(args: list[str]) -> dict:
     if len(args) < 3:
         raise ValueError("agent_address, scenario_path, and actor_id are required")
+    from openlvm.arena import build_trace_commitment
     from openlvm.integrations import SolanaAgentKitAdapter
 
     agent_address = args[0]
@@ -616,10 +617,27 @@ def _arena_run(args: list[str]) -> dict:
     check_count = len(checks) if isinstance(checks, list) else 0
     score = round(min(0.6 + check_count * 0.05, 0.99), 2)
     status = "passed" if score >= 0.75 else "warning"
+    entry_fee_usdc = float(payload.get("entry_fee_usdc", 0.05))
+    opponent = str(payload.get("arena_opponent", "arena-pool"))
     identity = SolanaAgentKitAdapter().connect_agent(
         agent_address=agent_address,
         wallet_provider=wallet_provider,
         private_key=private_key,
+    )
+    payment = SolanaAgentKitAdapter().simulate_x402_transfer(
+        from_agent=identity.address,
+        to_agent=opponent,
+        amount_usdc=entry_fee_usdc,
+    )
+    trace_commitment = build_trace_commitment(
+        {
+            "agent": identity.address,
+            "scenario_id": scenario_id,
+            "score": score,
+            "status": status,
+            "x402": payment,
+            "scenario": payload,
+        }
     )
     record = _operator_store().create_arena_run(
         identity.address,
@@ -629,6 +647,8 @@ def _arena_run(args: list[str]) -> dict:
         metadata={
             "wallet_provider": identity.wallet_provider,
             "adapter_mode": identity.metadata.get("adapter_mode", "mvp-local"),
+            "x402": payment,
+            "trace_commitment": trace_commitment,
             "scenario_path": str(scenario_path),
             "scenario": payload,
         },
