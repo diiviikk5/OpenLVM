@@ -90,6 +90,7 @@ Auth-ready API boundaries:
 - Workspace roles are now enforced for mutating actions (`viewer`, `editor`, `admin`, `owner`) in both API bridge and UI affordances.
 - Workbench API routes now map auth/permission/resource errors to `401`/`403`/`404` consistently instead of generic `500`.
 - All workbench endpoints except `/api/workbench/session` now require an authenticated signed session and return `401` when missing.
+- Bridge-layer stores can be isolated with `OPENLVM_OPERATOR_DB` and `OPENLVM_EVAL_DB` (useful for tests and sandboxed runs).
 
 Run tests:
 
