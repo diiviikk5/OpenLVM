@@ -610,6 +610,14 @@ def arena_submit(
     if not intent_commitment:
         console.print("[bold red]Intent commitment missing.[/bold red]")
         raise typer.Exit(code=1)
+    existing_submission = run.metadata.get("onchain_submission")
+    if isinstance(existing_submission, dict) and existing_submission.get("signature"):
+        console.print(
+            f"[yellow]Arena intent already submitted:[/yellow] {arena_run_id}\n"
+            f"Signature: {existing_submission.get('signature')}\n"
+            f"Explorer: {existing_submission.get('explorer_url')}"
+        )
+        raise typer.Exit(code=0)
     submission = SolanaAgentKitAdapter().submit_onchain_intent(
         intent_commitment=intent_commitment,
         cluster=cluster,

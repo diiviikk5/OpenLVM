@@ -708,6 +708,14 @@ def _arena_submit_intent(args: list[str]) -> dict:
     intent = run.metadata.get("onchain_intent")
     if not isinstance(intent, dict):
         raise KeyError(f"onchain_intent not found for arena run: {arena_run_id}")
+    existing_submission = run.metadata.get("onchain_submission")
+    if isinstance(existing_submission, dict) and existing_submission.get("signature"):
+        return {
+            "arena_run_id": run.arena_run_id,
+            "onchain_intent": intent,
+            "onchain_submission": existing_submission,
+            "already_submitted": True,
+        }
     cluster = str(intent.get("cluster", "devnet") or "devnet")
     intent_commitment = str(intent.get("intent_commitment", "")).strip()
     if not intent_commitment:

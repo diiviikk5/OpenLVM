@@ -1447,6 +1447,16 @@ export default function WorkbenchPage() {
                     ({row.metadata.onchain_submission.signature})
                   </div>
                 )}
+                {row.metadata?.onchain_submission?.explorer_url && (
+                  <a
+                    className="text-warm-silver text-xs underline"
+                    href={row.metadata.onchain_submission.explorer_url}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    explorer tx
+                  </a>
+                )}
               </div>
               <div className="text-right">
                 <div>{row.score.toFixed(2)} ({row.status})</div>
@@ -1454,8 +1464,12 @@ export default function WorkbenchPage() {
                 <button className="mt-1 border border-border-dark px-2 py-1 rounded text-xs" onClick={() => void downloadArenaIntent(row.arena_run_id)}>
                   Export Intent
                 </button>
-                <button className="mt-1 border border-border-dark px-2 py-1 rounded text-xs" onClick={() => void submitArenaIntent(row.arena_run_id)}>
-                  Submit Intent
+                <button
+                  className="mt-1 border border-border-dark px-2 py-1 rounded text-xs disabled:opacity-50"
+                  disabled={Boolean(row.metadata?.onchain_submission?.signature)}
+                  onClick={() => void submitArenaIntent(row.arena_run_id)}
+                >
+                  {row.metadata?.onchain_submission?.signature ? "Submitted" : "Submit Intent"}
                 </button>
               </div>
             </div>

@@ -114,6 +114,9 @@ def test_workbench_bridge_uses_isolated_store_paths(tmp_path):
         assert submit_payload["arena_run_id"] == arena_run["arena_run_id"]
         assert submit_payload["onchain_submission"]["submission_status"] == "simulated_confirmed"
         assert submit_payload["onchain_submission"]["signature"]
+        submit_again = _run_bridge(module, "arena_submit_intent", [arena_run["arena_run_id"], actor_id])
+        assert submit_again["already_submitted"] is True
+        assert submit_again["onchain_submission"]["signature"] == submit_payload["onchain_submission"]["signature"]
     finally:
         os.environ.clear()
         os.environ.update(old_env)
