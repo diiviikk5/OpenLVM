@@ -21,3 +21,17 @@ def test_openllmetry_adapter_instruments_trace_shape():
     trace = adapter.instrument_fork(42)
     assert trace["fork_handle"] == 42
     assert trace["trace_name"] == "openlvm-fork-42"
+
+
+def test_solana_adapter_submit_intent_stub_shape(monkeypatch):
+    from openlvm.integrations import SolanaAgentKitAdapter
+
+    monkeypatch.setenv("OPENLVM_SOLANA_BRIDGE_MODE", "stub")
+    adapter = SolanaAgentKitAdapter()
+    result = adapter.submit_onchain_intent(
+        intent_commitment="sha256:abc123",
+        cluster="devnet",
+    )
+    assert result["submission_status"] == "simulated_confirmed"
+    assert result["signature"]
+    assert "explorer.solana.com/tx/" in result["explorer_url"]

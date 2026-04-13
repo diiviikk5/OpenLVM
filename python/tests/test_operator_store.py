@@ -159,3 +159,9 @@ def test_operator_store_arena_runs(tmp_path):
     assert rows[0].agent_address == "AgentPubKey111"
     assert rows[0].metadata["wallet_provider"] == "embedded"
     assert fetched.arena_run_id == run.arena_run_id
+    updated = store.update_arena_run_metadata(
+        run.arena_run_id,
+        {"onchain_submission": {"signature": "sig-1", "submission_status": "simulated_confirmed"}},
+        actor_id="arena#1",
+    )
+    assert updated.metadata["onchain_submission"]["signature"] == "sig-1"

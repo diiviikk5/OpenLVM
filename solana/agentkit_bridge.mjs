@@ -56,5 +56,29 @@ if (command === "simulate_x402_transfer") {
   process.exit(0);
 }
 
+if (command === "submit_onchain_intent") {
+  const cluster = String(payload.cluster || "devnet");
+  const intentCommitment = String(payload.intent_commitment || "").trim();
+  if (!intentCommitment) {
+    out({ error: "intent_commitment is required" });
+    process.exit(1);
+  }
+  const signature = crypto
+    .createHash("sha256")
+    .update(`${cluster}:${intentCommitment}`)
+    .digest("hex")
+    .slice(0, 64);
+  out({
+    submission_status: "simulated_confirmed",
+    signature,
+    cluster,
+    explorer_url: `https://explorer.solana.com/tx/${signature}?cluster=${cluster}`,
+    metadata: {
+      adapter_mode: "node-bridge",
+    },
+  });
+  process.exit(0);
+}
+
 out({ error: `unknown command: ${command}` });
 process.exit(1);

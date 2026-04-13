@@ -71,6 +71,21 @@ class SolanaAgentKitAdapter:
         )
         return payload
 
+    def submit_onchain_intent(
+        self,
+        *,
+        intent_commitment: str,
+        cluster: str = "devnet",
+    ) -> dict[str, Any]:
+        payload = self._invoke(
+            "submit_onchain_intent",
+            {
+                "intent_commitment": intent_commitment,
+                "cluster": cluster,
+            },
+        )
+        return payload
+
     def _invoke(self, command: str, payload: dict[str, Any]) -> dict[str, Any]:
         if not self.force_stub and self.node and self.bridge_script.exists():
             try:
@@ -109,6 +124,21 @@ class SolanaAgentKitAdapter:
                     "adapter_mode": "mvp-local-stub",
                     "from_agent": payload.get("from_agent", ""),
                     "to_agent": payload.get("to_agent", ""),
+                },
+            }
+        if command == "submit_onchain_intent":
+            commitment = str(payload.get("intent_commitment", "")).strip()
+            if not commitment:
+                raise ValueError("intent_commitment is required")
+            cluster = str(payload.get("cluster", "devnet") or "devnet")
+            signature = f"simsig-{commitment.replace(':', '')[:24]}"
+            return {
+                "submission_status": "simulated_confirmed",
+                "signature": signature,
+                "cluster": cluster,
+                "explorer_url": f"https://explorer.solana.com/tx/{signature}?cluster={cluster}",
+                "metadata": {
+                    "adapter_mode": "mvp-local-stub",
                 },
             }
         raise ValueError(f"unknown bridge command: {command}")

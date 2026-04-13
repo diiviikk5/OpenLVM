@@ -95,6 +95,12 @@ type ArenaRun = {
         score_bps?: number;
       };
     };
+    onchain_submission?: {
+      submission_status?: string;
+      signature?: string;
+      cluster?: string;
+      explorer_url?: string;
+    };
   };
 };
 type RunInspection = {
@@ -862,6 +868,20 @@ export default function WorkbenchPage() {
     }
   };
 
+  const submitArenaIntent = async (arenaRunId: string) => {
+    try {
+      const res = await fetch(`/api/workbench/arena/${encodeURIComponent(arenaRunId)}/submit`, {
+        method: "POST",
+      });
+      const data = (await res.json()) as { error?: string; onchain_submission?: { signature?: string } };
+      if (!res.ok || data.error) throw new Error(data.error || "arena intent submit failed");
+      await load();
+      setMsg(`Arena intent submitted: ${data.onchain_submission?.signature || arenaRunId}`);
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
   const switchSessionUser = async () => {
     const nextUser = sessionUserInput.trim();
     if (!nextUser) {
@@ -1421,12 +1441,21 @@ export default function WorkbenchPage() {
                     ({row.metadata.onchain_intent.intent_commitment})
                   </div>
                 )}
+                {row.metadata?.onchain_submission?.signature && (
+                  <div className="text-warm-silver text-xs">
+                    submitted {row.metadata.onchain_submission.submission_status}{" "}
+                    ({row.metadata.onchain_submission.signature})
+                  </div>
+                )}
               </div>
               <div className="text-right">
                 <div>{row.score.toFixed(2)} ({row.status})</div>
                 <div className="text-warm-silver">{new Date(row.created_at).toLocaleString()}</div>
                 <button className="mt-1 border border-border-dark px-2 py-1 rounded text-xs" onClick={() => void downloadArenaIntent(row.arena_run_id)}>
                   Export Intent
+                </button>
+                <button className="mt-1 border border-border-dark px-2 py-1 rounded text-xs" onClick={() => void submitArenaIntent(row.arena_run_id)}>
+                  Submit Intent
                 </button>
               </div>
             </div>

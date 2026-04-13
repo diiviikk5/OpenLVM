@@ -110,6 +110,10 @@ def test_workbench_bridge_uses_isolated_store_paths(tmp_path):
         intent_payload = _run_bridge(module, "arena_intent", [arena_run["arena_run_id"], actor_id])
         assert intent_payload["arena_run_id"] == arena_run["arena_run_id"]
         assert intent_payload["onchain_intent"]["schema"] == "openlvm.arena.intent.v1"
+        submit_payload = _run_bridge(module, "arena_submit_intent", [arena_run["arena_run_id"], actor_id])
+        assert submit_payload["arena_run_id"] == arena_run["arena_run_id"]
+        assert submit_payload["onchain_submission"]["submission_status"] == "simulated_confirmed"
+        assert submit_payload["onchain_submission"]["signature"]
     finally:
         os.environ.clear()
         os.environ.update(old_env)

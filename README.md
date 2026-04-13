@@ -26,6 +26,7 @@ openlvm baseline-compare <collection-id> <run-id>
 openlvm arena-run --agent <pubkey> --scenario ..\solana\scenarios\usdc-payment-smoke.json
 openlvm arena-runs
 openlvm arena-intent <arena-run-id>
+openlvm arena-submit <arena-run-id>
 openlvm arena-integrations
 openlvm mcp-serve
 ```
@@ -77,6 +78,7 @@ Available API routes:
 - `GET/POST/DELETE /api/workbench/member` (workspace member list/upsert/remove with role checks)
 - `GET/POST /api/workbench/arena` (list/create Solana Arena MVP runs)
 - `GET /api/workbench/arena/[arenaRunId]/intent` (fetch export-ready onchain intent payload for one arena run)
+- `POST /api/workbench/arena/[arenaRunId]/submit` (submit stored intent via Solana adapter and persist receipt)
 - `GET/POST/DELETE /api/workbench/session` (signed session cookie bootstrap/rotation/clear)
 
 `POST /api/workbench/compare` accepts optional `baseline_ids` to compare one candidate run against multiple saved baselines in a single call.

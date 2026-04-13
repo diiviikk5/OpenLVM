@@ -203,3 +203,30 @@ def test_arena_intent_command_outputs_json(tmp_path, monkeypatch):
     assert result.exit_code == 0
     assert '"arena_run_id"' in result.stdout
     assert "openlvm.arena.intent.v1" in result.stdout
+
+
+def test_arena_submit_command_persists_submission(tmp_path, monkeypatch):
+    store = OperatorStore(tmp_path / "operator_store.db")
+    run = store.create_arena_run(
+        "AgentPubKey111",
+        "scenario-usdc-transfer",
+        0.88,
+        "passed",
+        metadata={
+            "trace_commitment": "sha256:test",
+            "onchain_intent": {
+                "schema": "openlvm.arena.intent.v1",
+                "cluster": "devnet",
+                "intent_commitment": "sha256:intent",
+            },
+        },
+        actor_id="arena#test",
+    )
+    monkeypatch.setattr("openlvm.cli.OperatorStore", lambda: store)
+    monkeypatch.setenv("OPENLVM_SOLANA_BRIDGE_MODE", "stub")
+
+    result = runner.invoke(app, ["arena-submit", run.arena_run_id])
+    assert result.exit_code == 0
+    assert "Arena intent submitted" in result.stdout
+    updated = store.get_arena_run(run.arena_run_id)
+    assert updated.metadata["onchain_submission"]["signature"]

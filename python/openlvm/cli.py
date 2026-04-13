@@ -593,6 +593,40 @@ def arena_intent(
     )
 
 
+@app.command("arena-submit")
+def arena_submit(
+    arena_run_id: str = typer.Argument(..., help="Arena run id"),
+    actor_id: str = typer.Option("arena-cli", "--actor-id", help="Actor id for audit trail"),
+):
+    """Submit stored onchain intent through Solana adapter and persist submission receipt."""
+    store = OperatorStore()
+    run = store.get_arena_run(arena_run_id)
+    intent = run.metadata.get("onchain_intent")
+    if not isinstance(intent, dict):
+        console.print(f"[bold red]No onchain intent found for run:[/bold red] {arena_run_id}")
+        raise typer.Exit(code=1)
+    intent_commitment = str(intent.get("intent_commitment", "")).strip()
+    cluster = str(intent.get("cluster", "devnet") or "devnet")
+    if not intent_commitment:
+        console.print("[bold red]Intent commitment missing.[/bold red]")
+        raise typer.Exit(code=1)
+    submission = SolanaAgentKitAdapter().submit_onchain_intent(
+        intent_commitment=intent_commitment,
+        cluster=cluster,
+    )
+    updated = store.update_arena_run_metadata(
+        arena_run_id,
+        {"onchain_submission": submission},
+        actor_id=actor_id,
+    )
+    console.print(
+        f"[bold green]Arena intent submitted:[/bold green] {updated.arena_run_id}\n"
+        f"Status: {submission.get('submission_status')}\n"
+        f"Signature: {submission.get('signature')}\n"
+        f"Explorer: {submission.get('explorer_url')}"
+    )
+
+
 @app.command("arena-integrations")
 def arena_integrations():
     """List Solana integration hub entries and local readiness."""

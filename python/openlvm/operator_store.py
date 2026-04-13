@@ -975,6 +975,35 @@ class OperatorStore:
             actor_id=row["actor_id"],
         )
 
+    def update_arena_run_metadata(
+        self,
+        arena_run_id: str,
+        metadata_patch: dict,
+        *,
+        actor_id: str = "system",
+    ) -> ArenaRunRecord:
+        current = self.get_arena_run(arena_run_id)
+        next_metadata = dict(current.metadata)
+        next_metadata.update(metadata_patch or {})
+        with self._connect() as conn:
+            conn.execute(
+                """
+                UPDATE arena_runs
+                SET metadata_json = ?
+                WHERE arena_run_id = ?
+                """,
+                (json.dumps(next_metadata), arena_run_id),
+            )
+            self._insert_audit_event(
+                conn,
+                actor_id=actor_id,
+                action="arena.run.metadata.update",
+                entity_type="arena_run",
+                entity_id=arena_run_id,
+                details={"keys": sorted((metadata_patch or {}).keys())},
+            )
+        return self.get_arena_run(arena_run_id)
+
     def get_collection_summary(self, collection_id: str) -> dict:
         collection = self.get_collection(collection_id)
         workspace = self.get_workspace(collection.workspace_id)

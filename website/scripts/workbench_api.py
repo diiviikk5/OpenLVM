@@ -695,6 +695,39 @@ def _arena_intent(args: list[str]) -> dict:
     }
 
 
+def _arena_submit_intent(args: list[str]) -> dict:
+    if len(args) < 2:
+        raise ValueError("arena_run_id and actor_id are required")
+    from openlvm.integrations import SolanaAgentKitAdapter
+
+    arena_run_id = args[0]
+    actor_id = args[1]
+    _require_authenticated_actor(actor_id)
+    store = _operator_store()
+    run = store.get_arena_run(arena_run_id)
+    intent = run.metadata.get("onchain_intent")
+    if not isinstance(intent, dict):
+        raise KeyError(f"onchain_intent not found for arena run: {arena_run_id}")
+    cluster = str(intent.get("cluster", "devnet") or "devnet")
+    intent_commitment = str(intent.get("intent_commitment", "")).strip()
+    if not intent_commitment:
+        raise ValueError("intent_commitment is required")
+    submission = SolanaAgentKitAdapter().submit_onchain_intent(
+        intent_commitment=intent_commitment,
+        cluster=cluster,
+    )
+    updated = store.update_arena_run_metadata(
+        arena_run_id,
+        {"onchain_submission": submission},
+        actor_id=actor_id,
+    )
+    return {
+        "arena_run_id": updated.arena_run_id,
+        "onchain_intent": intent,
+        "onchain_submission": updated.metadata.get("onchain_submission", {}),
+    }
+
+
 def _main() -> int:
     _bootstrap()
     if len(sys.argv) < 2:
@@ -759,6 +792,8 @@ def _main() -> int:
             result = _arena_runs(args)
         elif command == "arena_intent":
             result = _arena_intent(args)
+        elif command == "arena_submit_intent":
+            result = _arena_submit_intent(args)
         else:
             raise ValueError(f"unknown command: {command}")
         print(json.dumps(result))

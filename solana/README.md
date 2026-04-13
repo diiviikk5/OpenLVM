@@ -19,6 +19,8 @@ solana --version
 ## Current MVP state
 
 - `openlvm arena-run --agent <pubkey> --scenario <json>` is available in the Python CLI.
+- `openlvm arena-intent <arena-run-id>` exports the deterministic onchain intent payload.
+- `openlvm arena-submit <arena-run-id>` submits that intent through the Solana bridge and stores the submission receipt.
 - `openlvm arena-integrations` lists hub integrations and local readiness.
 - Arena runs are persisted in the operator store (`arena_runs` table).
 - Solana connectivity is routed through `solana/agentkit_bridge.mjs` (Node bridge) with Python stub fallback.
