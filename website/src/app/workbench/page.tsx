@@ -842,6 +842,26 @@ export default function WorkbenchPage() {
     }
   };
 
+  const downloadArenaIntent = async (arenaRunId: string) => {
+    try {
+      const res = await fetch(`/api/workbench/arena/${encodeURIComponent(arenaRunId)}/intent`, { cache: "no-store" });
+      const data = (await res.json()) as { error?: string; arena_run_id?: string };
+      if (!res.ok || data.error) throw new Error(data.error || "arena intent fetch failed");
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `openlvm-arena-intent-${arenaRunId}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      setMsg(`Arena intent exported: ${arenaRunId}`);
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
   const switchSessionUser = async () => {
     const nextUser = sessionUserInput.trim();
     if (!nextUser) {
@@ -1405,6 +1425,9 @@ export default function WorkbenchPage() {
               <div className="text-right">
                 <div>{row.score.toFixed(2)} ({row.status})</div>
                 <div className="text-warm-silver">{new Date(row.created_at).toLocaleString()}</div>
+                <button className="mt-1 border border-border-dark px-2 py-1 rounded text-xs" onClick={() => void downloadArenaIntent(row.arena_run_id)}>
+                  Export Intent
+                </button>
               </div>
             </div>
           ))}

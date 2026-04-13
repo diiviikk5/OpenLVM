@@ -107,6 +107,9 @@ def test_workbench_bridge_uses_isolated_store_paths(tmp_path):
             == arena_run["metadata"]["trace_commitment"]
         )
         assert str(arena_run["metadata"]["onchain_intent"]["intent_commitment"]).startswith("sha256:")
+        intent_payload = _run_bridge(module, "arena_intent", [arena_run["arena_run_id"], actor_id])
+        assert intent_payload["arena_run_id"] == arena_run["arena_run_id"]
+        assert intent_payload["onchain_intent"]["schema"] == "openlvm.arena.intent.v1"
     finally:
         os.environ.clear()
         os.environ.update(old_env)

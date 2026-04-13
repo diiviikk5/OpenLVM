@@ -952,6 +952,29 @@ class OperatorStore:
             for row in rows
         ]
 
+    def get_arena_run(self, arena_run_id: str) -> ArenaRunRecord:
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT arena_run_id, agent_address, scenario_id, score, status, metadata_json, created_at, actor_id
+                FROM arena_runs
+                WHERE arena_run_id = ?
+                """,
+                (arena_run_id,),
+            ).fetchone()
+        if row is None:
+            raise KeyError(f"Arena run not found: {arena_run_id}")
+        return ArenaRunRecord(
+            arena_run_id=row["arena_run_id"],
+            agent_address=row["agent_address"],
+            scenario_id=row["scenario_id"],
+            score=float(row["score"]),
+            status=row["status"],
+            metadata=json.loads(row["metadata_json"]),
+            created_at=row["created_at"],
+            actor_id=row["actor_id"],
+        )
+
     def get_collection_summary(self, collection_id: str) -> dict:
         collection = self.get_collection(collection_id)
         workspace = self.get_workspace(collection.workspace_id)

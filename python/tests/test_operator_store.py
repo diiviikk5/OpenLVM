@@ -154,6 +154,8 @@ def test_operator_store_arena_runs(tmp_path):
         actor_id="arena#1",
     )
     rows = store.list_arena_runs(limit=10)
+    fetched = store.get_arena_run(run.arena_run_id)
     assert rows[0].arena_run_id == run.arena_run_id
     assert rows[0].agent_address == "AgentPubKey111"
     assert rows[0].metadata["wallet_provider"] == "embedded"
+    assert fetched.arena_run_id == run.arena_run_id

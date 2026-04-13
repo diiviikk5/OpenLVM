@@ -675,6 +675,26 @@ def _arena_runs(args: list[str]) -> dict:
     return {"arena_runs": [row.model_dump() for row in rows]}
 
 
+def _arena_intent(args: list[str]) -> dict:
+    if len(args) < 2:
+        raise ValueError("arena_run_id and actor_id are required")
+    arena_run_id = args[0]
+    actor_id = args[1]
+    _require_authenticated_actor(actor_id)
+    run = _operator_store().get_arena_run(arena_run_id)
+    intent = run.metadata.get("onchain_intent")
+    if not isinstance(intent, dict):
+        raise KeyError(f"onchain_intent not found for arena run: {arena_run_id}")
+    return {
+        "arena_run_id": run.arena_run_id,
+        "agent_address": run.agent_address,
+        "scenario_id": run.scenario_id,
+        "created_at": run.created_at,
+        "trace_commitment": run.metadata.get("trace_commitment", ""),
+        "onchain_intent": intent,
+    }
+
+
 def _main() -> int:
     _bootstrap()
     if len(sys.argv) < 2:
@@ -737,6 +757,8 @@ def _main() -> int:
             result = _arena_run(args)
         elif command == "arena_runs":
             result = _arena_runs(args)
+        elif command == "arena_intent":
+            result = _arena_intent(args)
         else:
             raise ValueError(f"unknown command: {command}")
         print(json.dumps(result))
