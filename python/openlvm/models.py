@@ -181,3 +181,14 @@ class CompareArtifactRecord(BaseModel):
     payload: Dict[str, Any] = Field(default_factory=dict)
     created_at: str
     actor_id: str = "system"
+
+
+class ArenaRunRecord(BaseModel):
+    arena_run_id: str
+    agent_address: str
+    scenario_id: str
+    score: float
+    status: str
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    created_at: str
+    actor_id: str = "system"

@@ -141,3 +141,19 @@ def test_operator_store_legacy_workspace_stays_accessible(tmp_path):
     assert store.list_workspace_members(workspace.workspace_id) == []
     store.ensure_workspace_access(workspace.workspace_id, "anonymous", min_role="viewer")
     store.ensure_workspace_access(workspace.workspace_id, "random-user", min_role="admin")
+
+
+def test_operator_store_arena_runs(tmp_path):
+    store = OperatorStore(tmp_path / "operator_store.db")
+    run = store.create_arena_run(
+        "AgentPubKey111",
+        "scenario-usdc-transfer",
+        0.87,
+        "passed",
+        metadata={"wallet_provider": "embedded"},
+        actor_id="arena#1",
+    )
+    rows = store.list_arena_runs(limit=10)
+    assert rows[0].arena_run_id == run.arena_run_id
+    assert rows[0].agent_address == "AgentPubKey111"
+    assert rows[0].metadata["wallet_provider"] == "embedded"

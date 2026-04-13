@@ -1,0 +1,13 @@
+{
+  "id": "usdc-payment-smoke",
+  "name": "USDC Payment Smoke",
+  "checks": [
+    "agent initializes wallet context",
+    "agent prepares x402 payment intent",
+    "agent confirms transfer result payload"
+  ],
+  "context": {
+    "network": "devnet",
+    "token": "USDC"
+  }
+}

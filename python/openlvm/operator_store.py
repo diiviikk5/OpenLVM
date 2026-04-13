@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Optional
 
 from .models import (
+    ArenaRunRecord,
     BaselineRecord,
     CollectionRecord,
     CompareArtifactRecord,
@@ -121,6 +122,20 @@ class OperatorStore:
                     baseline_ids_json TEXT NOT NULL,
                     filename TEXT NOT NULL,
                     payload_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    actor_id TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS arena_runs (
+                    arena_run_id TEXT PRIMARY KEY,
+                    agent_address TEXT NOT NULL,
+                    scenario_id TEXT NOT NULL,
+                    score REAL NOT NULL,
+                    status TEXT NOT NULL,
+                    metadata_json TEXT NOT NULL,
                     created_at TEXT NOT NULL,
                     actor_id TEXT NOT NULL
                 )
@@ -857,6 +872,85 @@ class OperatorStore:
                 },
             )
         return len(to_delete)
+
+    def create_arena_run(
+        self,
+        agent_address: str,
+        scenario_id: str,
+        score: float,
+        status: str,
+        *,
+        metadata: Optional[dict] = None,
+        actor_id: str = "system",
+    ) -> ArenaRunRecord:
+        record = ArenaRunRecord(
+            arena_run_id=self._new_id("arena"),
+            agent_address=agent_address,
+            scenario_id=scenario_id,
+            score=float(score),
+            status=status,
+            metadata=metadata or {},
+            created_at=self._timestamp(),
+            actor_id=actor_id,
+        )
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO arena_runs (
+                    arena_run_id, agent_address, scenario_id, score, status,
+                    metadata_json, created_at, actor_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    record.arena_run_id,
+                    record.agent_address,
+                    record.scenario_id,
+                    record.score,
+                    record.status,
+                    json.dumps(record.metadata),
+                    record.created_at,
+                    record.actor_id,
+                ),
+            )
+            self._insert_audit_event(
+                conn,
+                actor_id=actor_id,
+                action="arena.run.create",
+                entity_type="arena_run",
+                entity_id=record.arena_run_id,
+                details={
+                    "agent_address": agent_address,
+                    "scenario_id": scenario_id,
+                    "score": record.score,
+                    "status": status,
+                },
+            )
+        return record
+
+    def list_arena_runs(self, limit: int = 50) -> list[ArenaRunRecord]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT arena_run_id, agent_address, scenario_id, score, status, metadata_json, created_at, actor_id
+                FROM arena_runs
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        return [
+            ArenaRunRecord(
+                arena_run_id=row["arena_run_id"],
+                agent_address=row["agent_address"],
+                scenario_id=row["scenario_id"],
+                score=float(row["score"]),
+                status=row["status"],
+                metadata=json.loads(row["metadata_json"]),
+                created_at=row["created_at"],
+                actor_id=row["actor_id"],
+            )
+            for row in rows
+        ]
 
     def get_collection_summary(self, collection_id: str) -> dict:
         collection = self.get_collection(collection_id)
