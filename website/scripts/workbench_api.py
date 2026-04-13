@@ -608,6 +608,7 @@ def _arena_run(args: list[str]) -> dict:
     actor_id = args[2]
     wallet_provider = args[3] if len(args) > 3 and args[3] else "embedded"
     private_key = args[4] if len(args) > 4 and args[4] else None
+    submit_intent = str(args[5]).strip().lower() in {"1", "true", "yes", "on"} if len(args) > 5 else False
     _require_authenticated_actor(actor_id)
     if not scenario_path.exists():
         raise FileNotFoundError(f"Scenario file not found: {scenario_path}")
@@ -648,20 +649,30 @@ def _arena_run(args: list[str]) -> dict:
         trace_commitment=trace_commitment,
         cluster=os.getenv("OPENLVM_SOLANA_CLUSTER", "devnet"),
     )
+    metadata = {
+        "wallet_provider": identity.wallet_provider,
+        "adapter_mode": identity.metadata.get("adapter_mode", "mvp-local"),
+        "x402": payment,
+        "trace_commitment": trace_commitment,
+        "onchain_intent": onchain_intent,
+        "scenario_path": str(scenario_path),
+        "scenario": payload,
+    }
+    if submit_intent:
+        intent_commitment = str(onchain_intent.get("intent_commitment", "")).strip()
+        cluster = str(onchain_intent.get("cluster", "devnet") or "devnet")
+        if not intent_commitment:
+            raise ValueError("intent_commitment is required")
+        metadata["onchain_submission"] = SolanaAgentKitAdapter().submit_onchain_intent(
+            intent_commitment=intent_commitment,
+            cluster=cluster,
+        )
     record = _operator_store().create_arena_run(
         identity.address,
         scenario_id,
         score,
         status,
-        metadata={
-            "wallet_provider": identity.wallet_provider,
-            "adapter_mode": identity.metadata.get("adapter_mode", "mvp-local"),
-            "x402": payment,
-            "trace_commitment": trace_commitment,
-            "onchain_intent": onchain_intent,
-            "scenario_path": str(scenario_path),
-            "scenario": payload,
-        },
+        metadata=metadata,
         actor_id=actor_id,
     )
     return record.model_dump()

@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 from typer.testing import CliRunner
@@ -259,3 +260,36 @@ def test_arena_submit_command_is_idempotent(tmp_path, monkeypatch):
     result = runner.invoke(app, ["arena-submit", run.arena_run_id])
     assert result.exit_code == 0
     assert "already submitted" in result.stdout.lower()
+
+
+def test_arena_run_can_auto_submit_intent(tmp_path, monkeypatch):
+    store = OperatorStore(tmp_path / "operator_store.db")
+    scenario_path = tmp_path / "arena-scenario.json"
+    scenario_path.write_text(
+        json.dumps(
+            {
+                "id": "arena-auto-submit",
+                "checks": ["wallet", "payment"],
+                "entry_fee_usdc": 0.05,
+                "arena_opponent": "arena-pool",
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("openlvm.cli.OperatorStore", lambda: store)
+    monkeypatch.setenv("OPENLVM_SOLANA_BRIDGE_MODE", "stub")
+
+    result = runner.invoke(
+        app,
+        [
+            "arena-run",
+            "--agent",
+            "AgentPubKeyAuto111",
+            "--scenario",
+            str(scenario_path),
+            "--submit-intent",
+        ],
+    )
+    assert result.exit_code == 0
+    rows = store.list_arena_runs(limit=1)
+    assert rows[0].metadata["onchain_submission"]["signature"]

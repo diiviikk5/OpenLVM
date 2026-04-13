@@ -476,6 +476,7 @@ def arena_run(
     scenario: Path = typer.Option(..., "--scenario", help="Path to scenario JSON payload"),
     wallet_provider: str = typer.Option("embedded", "--wallet-provider", help="Wallet mode: embedded|private_key|external"),
     private_key: Optional[str] = typer.Option(None, "--private-key", help="Optional private key for local test wallets"),
+    submit_intent: bool = typer.Option(False, "--submit-intent", help="Submit onchain intent immediately after run"),
     actor_id: str = typer.Option("arena-cli", "--actor-id", help="Actor id for audit trail"),
 ):
     """Run one Solana Arena scenario using the current local simulation engine."""
@@ -521,19 +522,30 @@ def arena_run(
         trace_commitment=trace_commitment,
         cluster=os.getenv("OPENLVM_SOLANA_CLUSTER", "devnet"),
     )
+    metadata = {
+        "wallet_provider": identity.wallet_provider,
+        "adapter_mode": identity.metadata.get("adapter_mode", "mvp-local"),
+        "x402": payment,
+        "trace_commitment": trace_commitment,
+        "onchain_intent": onchain_intent,
+        "scenario": payload,
+    }
+    if submit_intent:
+        intent_commitment = str(onchain_intent.get("intent_commitment", "")).strip()
+        cluster = str(onchain_intent.get("cluster", "devnet") or "devnet")
+        if not intent_commitment:
+            console.print("[bold red]Intent commitment missing.[/bold red]")
+            raise typer.Exit(code=1)
+        metadata["onchain_submission"] = SolanaAgentKitAdapter().submit_onchain_intent(
+            intent_commitment=intent_commitment,
+            cluster=cluster,
+        )
     record = OperatorStore().create_arena_run(
         identity.address,
         scenario_id,
         score,
         status,
-        metadata={
-            "wallet_provider": identity.wallet_provider,
-            "adapter_mode": identity.metadata.get("adapter_mode", "mvp-local"),
-            "x402": payment,
-            "trace_commitment": trace_commitment,
-            "onchain_intent": onchain_intent,
-            "scenario": payload,
-        },
+        metadata=metadata,
         actor_id=actor_id,
     )
 
@@ -545,6 +557,12 @@ def arena_run(
         f"x402: {payment.get('x402_status')} {payment.get('amount_usdc')} USDC ({payment.get('tx_ref')})\n"
         f"Trace commitment: {trace_commitment}"
     )
+    submission = record.metadata.get("onchain_submission", {})
+    if isinstance(submission, dict) and submission.get("signature"):
+        console.print(
+            f"Onchain submission: {submission.get('submission_status')} {submission.get('signature')}\n"
+            f"Explorer: {submission.get('explorer_url')}"
+        )
 
 
 @app.command("arena-runs")

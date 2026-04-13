@@ -33,6 +33,7 @@ export async function POST(request: NextRequest) {
       scenario_path?: string;
       wallet_provider?: string;
       private_key?: string;
+      submit_intent?: boolean;
     };
     if (!payload.agent_address || !payload.scenario_path) {
       return contextError("agent_address and scenario_path are required", ctx, 400);
@@ -43,6 +44,7 @@ export async function POST(request: NextRequest) {
       ctx.actorId,
       payload.wallet_provider || "embedded",
       payload.private_key || "",
+      payload.submit_intent ? "1" : "0",
     ]);
     if (typeof data === "object" && data && "error" in data) {
       const detail = String((data as { error: string }).error);

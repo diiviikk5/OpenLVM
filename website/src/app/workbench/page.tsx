@@ -219,6 +219,7 @@ export default function WorkbenchPage() {
   const [compareHistory, setCompareHistory] = useState<CompareHistoryEntry[]>([]);
   const [arenaAgentAddress, setArenaAgentAddress] = useState("");
   const [arenaScenarioPath, setArenaScenarioPath] = useState("solana/scenarios/usdc-payment-smoke.json");
+  const [arenaSubmitIntentOnRun, setArenaSubmitIntentOnRun] = useState(true);
 
   const [workspaceName, setWorkspaceName] = useState("");
   const [collectionWorkspace, setCollectionWorkspace] = useState("");
@@ -840,6 +841,7 @@ export default function WorkbenchPage() {
       const result = await postJson<ArenaRun>("/api/workbench/arena", {
         agent_address: arenaAgentAddress.trim(),
         scenario_path: arenaScenarioPath.trim(),
+        submit_intent: arenaSubmitIntentOnRun,
       });
       await load();
       setMsg(`Arena run complete: ${result.arena_run_id}`);
@@ -1420,6 +1422,14 @@ export default function WorkbenchPage() {
         <button className="mt-2 bg-terracotta px-3 py-1 rounded" onClick={() => void runArenaScenario()}>
           Run Arena Scenario
         </button>
+        <label className="mt-2 flex items-center gap-2 text-xs text-warm-silver">
+          <input
+            type="checkbox"
+            checked={arenaSubmitIntentOnRun}
+            onChange={(e) => setArenaSubmitIntentOnRun(e.target.checked)}
+          />
+          submit onchain intent immediately after run
+        </label>
         <div className="space-y-2 text-sm max-h-56 overflow-auto mt-3">
           {(overview?.arena_runs || []).map((row) => (
             <div key={row.arena_run_id} className="flex items-center justify-between border border-border-dark rounded p-2">

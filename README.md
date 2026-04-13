@@ -24,6 +24,7 @@ openlvm compare <run-a> <run-b>
 openlvm collection-run <collection-id>
 openlvm baseline-compare <collection-id> <run-id>
 openlvm arena-run --agent <pubkey> --scenario ..\solana\scenarios\usdc-payment-smoke.json
+openlvm arena-run --agent <pubkey> --scenario ..\solana\scenarios\usdc-payment-smoke.json --submit-intent
 openlvm arena-runs
 openlvm arena-intent <arena-run-id>
 openlvm arena-submit <arena-run-id>

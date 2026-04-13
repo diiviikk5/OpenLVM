@@ -97,11 +97,12 @@ def test_workbench_bridge_uses_isolated_store_paths(tmp_path):
         arena_run = _run_bridge(
             module,
             "arena_run",
-            ["AgentPubKeyTest111", str(scenario_json), actor_id, "embedded", ""],
+            ["AgentPubKeyTest111", str(scenario_json), actor_id, "embedded", "", "1"],
         )
         assert arena_run["metadata"]["x402"]["x402_status"] == "simulated_settled"
         assert str(arena_run["metadata"]["trace_commitment"]).startswith("sha256:")
         assert arena_run["metadata"]["onchain_intent"]["schema"] == "openlvm.arena.intent.v1"
+        assert arena_run["metadata"]["onchain_submission"]["submission_status"] == "simulated_confirmed"
         assert (
             arena_run["metadata"]["onchain_intent"]["seed_bundle"]["trace_commitment"]
             == arena_run["metadata"]["trace_commitment"]
