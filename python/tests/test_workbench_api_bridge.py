@@ -101,6 +101,12 @@ def test_workbench_bridge_uses_isolated_store_paths(tmp_path):
         )
         assert arena_run["metadata"]["x402"]["x402_status"] == "simulated_settled"
         assert str(arena_run["metadata"]["trace_commitment"]).startswith("sha256:")
+        assert arena_run["metadata"]["onchain_intent"]["schema"] == "openlvm.arena.intent.v1"
+        assert (
+            arena_run["metadata"]["onchain_intent"]["seed_bundle"]["trace_commitment"]
+            == arena_run["metadata"]["trace_commitment"]
+        )
+        assert str(arena_run["metadata"]["onchain_intent"]["intent_commitment"]).startswith("sha256:")
     finally:
         os.environ.clear()
         os.environ.update(old_env)

@@ -11,7 +11,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from .arena import build_trace_commitment
+from .arena import build_onchain_intent, build_trace_commitment
 from .eval_store import EvalStore
 from .integrations import DeepEvalAdapter, OpenLLMetryAdapter, PromptfooAdapter, SolanaAgentKitAdapter
 from .mcp_server import serve as serve_mcp
@@ -512,6 +512,15 @@ def arena_run(
             "scenario": payload,
         }
     )
+    onchain_intent = build_onchain_intent(
+        agent_address=identity.address,
+        scenario_id=scenario_id,
+        score=score,
+        status=status,
+        payment=payment,
+        trace_commitment=trace_commitment,
+        cluster=os.getenv("OPENLVM_SOLANA_CLUSTER", "devnet"),
+    )
     record = OperatorStore().create_arena_run(
         identity.address,
         scenario_id,
@@ -522,6 +531,7 @@ def arena_run(
             "adapter_mode": identity.metadata.get("adapter_mode", "mvp-local"),
             "x402": payment,
             "trace_commitment": trace_commitment,
+            "onchain_intent": onchain_intent,
             "scenario": payload,
         },
         actor_id=actor_id,

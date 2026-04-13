@@ -23,6 +23,7 @@ solana --version
 - Arena runs are persisted in the operator store (`arena_runs` table).
 - Solana connectivity is routed through `solana/agentkit_bridge.mjs` (Node bridge) with Python stub fallback.
 - Arena runs now include simulated x402 payment settlement metadata and a `sha256` trace commitment.
+- Arena runs include an `onchain_intent` payload (`openlvm.arena.intent.v1`) with PDA-seed-ready fields and deterministic intent commitment hash for handoff to a future Solana program/indexer.
 - Integration registry lives at `solana/integrations/registry.json`.
 
 ## Next implementation targets

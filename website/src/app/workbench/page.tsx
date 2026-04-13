@@ -86,6 +86,15 @@ type ArenaRun = {
       tx_ref?: string;
     };
     trace_commitment?: string;
+    onchain_intent?: {
+      schema?: string;
+      cluster?: string;
+      intent_commitment?: string;
+      tx_intent?: {
+        intent_type?: string;
+        score_bps?: number;
+      };
+    };
   };
 };
 type RunInspection = {
@@ -1384,6 +1393,13 @@ export default function WorkbenchPage() {
                 )}
                 {row.metadata?.trace_commitment && (
                   <div className="text-warm-silver text-xs">commitment {row.metadata.trace_commitment}</div>
+                )}
+                {row.metadata?.onchain_intent?.intent_commitment && (
+                  <div className="text-warm-silver text-xs">
+                    onchain {row.metadata.onchain_intent.cluster || "devnet"}{" "}
+                    {row.metadata.onchain_intent.tx_intent?.intent_type || "intent"}{" "}
+                    ({row.metadata.onchain_intent.intent_commitment})
+                  </div>
                 )}
               </div>
               <div className="text-right">

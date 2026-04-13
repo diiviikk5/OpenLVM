@@ -600,7 +600,7 @@ def _remove_workspace_member(args: list[str]) -> dict:
 def _arena_run(args: list[str]) -> dict:
     if len(args) < 3:
         raise ValueError("agent_address, scenario_path, and actor_id are required")
-    from openlvm.arena import build_trace_commitment
+    from openlvm.arena import build_onchain_intent, build_trace_commitment
     from openlvm.integrations import SolanaAgentKitAdapter
 
     agent_address = args[0]
@@ -639,6 +639,15 @@ def _arena_run(args: list[str]) -> dict:
             "scenario": payload,
         }
     )
+    onchain_intent = build_onchain_intent(
+        agent_address=identity.address,
+        scenario_id=scenario_id,
+        score=score,
+        status=status,
+        payment=payment,
+        trace_commitment=trace_commitment,
+        cluster=os.getenv("OPENLVM_SOLANA_CLUSTER", "devnet"),
+    )
     record = _operator_store().create_arena_run(
         identity.address,
         scenario_id,
@@ -649,6 +658,7 @@ def _arena_run(args: list[str]) -> dict:
             "adapter_mode": identity.metadata.get("adapter_mode", "mvp-local"),
             "x402": payment,
             "trace_commitment": trace_commitment,
+            "onchain_intent": onchain_intent,
             "scenario_path": str(scenario_path),
             "scenario": payload,
         },
