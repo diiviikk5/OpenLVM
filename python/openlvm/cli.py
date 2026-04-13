@@ -477,6 +477,11 @@ def arena_run(
     wallet_provider: str = typer.Option("embedded", "--wallet-provider", help="Wallet mode: embedded|private_key|external"),
     private_key: Optional[str] = typer.Option(None, "--private-key", help="Optional private key for local test wallets"),
     submit_intent: bool = typer.Option(False, "--submit-intent", help="Submit onchain intent immediately after run"),
+    require_real_submission: bool = typer.Option(
+        False,
+        "--require-real-submission",
+        help="Fail if onchain submission uses local stub mode",
+    ),
     actor_id: str = typer.Option("arena-cli", "--actor-id", help="Actor id for audit trail"),
 ):
     """Run one Solana Arena scenario using the current local simulation engine."""
@@ -493,12 +498,13 @@ def arena_run(
     entry_fee_usdc = float(payload.get("entry_fee_usdc", 0.05))
     opponent = str(payload.get("arena_opponent", "arena-pool"))
 
-    identity = SolanaAgentKitAdapter().connect_agent(
+    adapter = SolanaAgentKitAdapter()
+    identity = adapter.connect_agent(
         agent_address=agent,
         wallet_provider=wallet_provider,
         private_key=private_key,
     )
-    payment = SolanaAgentKitAdapter().simulate_x402_transfer(
+    payment = adapter.simulate_x402_transfer(
         from_agent=identity.address,
         to_agent=opponent,
         amount_usdc=entry_fee_usdc,
@@ -536,10 +542,15 @@ def arena_run(
         if not intent_commitment:
             console.print("[bold red]Intent commitment missing.[/bold red]")
             raise typer.Exit(code=1)
-        metadata["onchain_submission"] = SolanaAgentKitAdapter().submit_onchain_intent(
+        submission = adapter.submit_onchain_intent(
             intent_commitment=intent_commitment,
             cluster=cluster,
         )
+        mode = str(submission.get("metadata", {}).get("adapter_mode", adapter.bridge_mode))
+        if require_real_submission and "stub" in mode:
+            console.print("[bold red]Submission used stub mode while real submission is required.[/bold red]")
+            raise typer.Exit(code=1)
+        metadata["onchain_submission"] = submission
     record = OperatorStore().create_arena_run(
         identity.address,
         scenario_id,
@@ -614,6 +625,11 @@ def arena_intent(
 @app.command("arena-submit")
 def arena_submit(
     arena_run_id: str = typer.Argument(..., help="Arena run id"),
+    require_real_submission: bool = typer.Option(
+        False,
+        "--require-real-submission",
+        help="Fail if onchain submission uses local stub mode",
+    ),
     actor_id: str = typer.Option("arena-cli", "--actor-id", help="Actor id for audit trail"),
 ):
     """Submit stored onchain intent through Solana adapter and persist submission receipt."""
@@ -636,10 +652,15 @@ def arena_submit(
             f"Explorer: {existing_submission.get('explorer_url')}"
         )
         raise typer.Exit(code=0)
-    submission = SolanaAgentKitAdapter().submit_onchain_intent(
+    adapter = SolanaAgentKitAdapter()
+    submission = adapter.submit_onchain_intent(
         intent_commitment=intent_commitment,
         cluster=cluster,
     )
+    mode = str(submission.get("metadata", {}).get("adapter_mode", adapter.bridge_mode))
+    if require_real_submission and "stub" in mode:
+        console.print("[bold red]Submission used stub mode while real submission is required.[/bold red]")
+        raise typer.Exit(code=1)
     updated = store.update_arena_run_metadata(
         arena_run_id,
         {"onchain_submission": submission},

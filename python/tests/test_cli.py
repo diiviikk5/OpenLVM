@@ -293,3 +293,29 @@ def test_arena_run_can_auto_submit_intent(tmp_path, monkeypatch):
     assert result.exit_code == 0
     rows = store.list_arena_runs(limit=1)
     assert rows[0].metadata["onchain_submission"]["signature"]
+
+
+def test_arena_run_require_real_submission_fails_on_stub(tmp_path, monkeypatch):
+    store = OperatorStore(tmp_path / "operator_store.db")
+    scenario_path = tmp_path / "arena-scenario-strict.json"
+    scenario_path.write_text(
+        json.dumps({"id": "arena-strict", "checks": ["wallet"]}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("openlvm.cli.OperatorStore", lambda: store)
+    monkeypatch.setenv("OPENLVM_SOLANA_BRIDGE_MODE", "stub")
+
+    result = runner.invoke(
+        app,
+        [
+            "arena-run",
+            "--agent",
+            "AgentPubKeyStrict111",
+            "--scenario",
+            str(scenario_path),
+            "--submit-intent",
+            "--require-real-submission",
+        ],
+    )
+    assert result.exit_code == 1
+    assert "stub mode" in result.stdout.lower()

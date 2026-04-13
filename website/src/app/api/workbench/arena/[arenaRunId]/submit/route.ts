@@ -14,7 +14,14 @@ export async function POST(
   if (unauth) return unauth;
   try {
     const { arenaRunId } = await params;
-    const data = await runWorkbenchBridge("arena_submit_intent", [arenaRunId, ctx.actorId]);
+    const payload = (await request.json().catch(() => ({}))) as {
+      require_real_submission?: boolean;
+    };
+    const data = await runWorkbenchBridge("arena_submit_intent", [
+      arenaRunId,
+      ctx.actorId,
+      payload.require_real_submission ? "1" : "0",
+    ]);
     if (typeof data === "object" && data && "error" in data) {
       const detail = String((data as { error: string }).error);
       return contextError("Arena intent submit failed", ctx, workbenchErrorStatus(detail), detail);

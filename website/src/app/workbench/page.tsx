@@ -220,6 +220,7 @@ export default function WorkbenchPage() {
   const [arenaAgentAddress, setArenaAgentAddress] = useState("");
   const [arenaScenarioPath, setArenaScenarioPath] = useState("solana/scenarios/usdc-payment-smoke.json");
   const [arenaSubmitIntentOnRun, setArenaSubmitIntentOnRun] = useState(true);
+  const [arenaRequireRealSubmission, setArenaRequireRealSubmission] = useState(false);
 
   const [workspaceName, setWorkspaceName] = useState("");
   const [collectionWorkspace, setCollectionWorkspace] = useState("");
@@ -842,6 +843,7 @@ export default function WorkbenchPage() {
         agent_address: arenaAgentAddress.trim(),
         scenario_path: arenaScenarioPath.trim(),
         submit_intent: arenaSubmitIntentOnRun,
+        require_real_submission: arenaRequireRealSubmission,
       });
       await load();
       setMsg(`Arena run complete: ${result.arena_run_id}`);
@@ -874,6 +876,8 @@ export default function WorkbenchPage() {
     try {
       const res = await fetch(`/api/workbench/arena/${encodeURIComponent(arenaRunId)}/submit`, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ require_real_submission: arenaRequireRealSubmission }),
       });
       const data = (await res.json()) as { error?: string; onchain_submission?: { signature?: string } };
       if (!res.ok || data.error) throw new Error(data.error || "arena intent submit failed");
@@ -1429,6 +1433,14 @@ export default function WorkbenchPage() {
             onChange={(e) => setArenaSubmitIntentOnRun(e.target.checked)}
           />
           submit onchain intent immediately after run
+        </label>
+        <label className="mt-1 flex items-center gap-2 text-xs text-warm-silver">
+          <input
+            type="checkbox"
+            checked={arenaRequireRealSubmission}
+            onChange={(e) => setArenaRequireRealSubmission(e.target.checked)}
+          />
+          require real submission (fail on local stub)
         </label>
         <div className="space-y-2 text-sm max-h-56 overflow-auto mt-3">
           {(overview?.arena_runs || []).map((row) => (

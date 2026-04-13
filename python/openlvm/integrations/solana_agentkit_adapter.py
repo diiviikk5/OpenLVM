@@ -31,6 +31,14 @@ class SolanaAgentKitAdapter:
         )
         self.force_stub = os.getenv("OPENLVM_SOLANA_BRIDGE_MODE", "").strip().lower() == "stub"
 
+    @property
+    def bridge_mode(self) -> str:
+        if self.force_stub:
+            return "mvp-local-stub"
+        if self.node and self.bridge_script.exists():
+            return "node-bridge"
+        return "mvp-local-stub"
+
     def connect_agent(
         self,
         *,

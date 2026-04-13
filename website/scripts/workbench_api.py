@@ -609,6 +609,7 @@ def _arena_run(args: list[str]) -> dict:
     wallet_provider = args[3] if len(args) > 3 and args[3] else "embedded"
     private_key = args[4] if len(args) > 4 and args[4] else None
     submit_intent = str(args[5]).strip().lower() in {"1", "true", "yes", "on"} if len(args) > 5 else False
+    require_real_submission = str(args[6]).strip().lower() in {"1", "true", "yes", "on"} if len(args) > 6 else False
     _require_authenticated_actor(actor_id)
     if not scenario_path.exists():
         raise FileNotFoundError(f"Scenario file not found: {scenario_path}")
@@ -620,12 +621,13 @@ def _arena_run(args: list[str]) -> dict:
     status = "passed" if score >= 0.75 else "warning"
     entry_fee_usdc = float(payload.get("entry_fee_usdc", 0.05))
     opponent = str(payload.get("arena_opponent", "arena-pool"))
-    identity = SolanaAgentKitAdapter().connect_agent(
+    adapter = SolanaAgentKitAdapter()
+    identity = adapter.connect_agent(
         agent_address=agent_address,
         wallet_provider=wallet_provider,
         private_key=private_key,
     )
-    payment = SolanaAgentKitAdapter().simulate_x402_transfer(
+    payment = adapter.simulate_x402_transfer(
         from_agent=identity.address,
         to_agent=opponent,
         amount_usdc=entry_fee_usdc,
@@ -663,10 +665,14 @@ def _arena_run(args: list[str]) -> dict:
         cluster = str(onchain_intent.get("cluster", "devnet") or "devnet")
         if not intent_commitment:
             raise ValueError("intent_commitment is required")
-        metadata["onchain_submission"] = SolanaAgentKitAdapter().submit_onchain_intent(
+        submission = adapter.submit_onchain_intent(
             intent_commitment=intent_commitment,
             cluster=cluster,
         )
+        mode = str(submission.get("metadata", {}).get("adapter_mode", adapter.bridge_mode))
+        if require_real_submission and "stub" in mode:
+            raise ValueError("submission used stub mode while real submission is required")
+        metadata["onchain_submission"] = submission
     record = _operator_store().create_arena_run(
         identity.address,
         scenario_id,
@@ -713,6 +719,7 @@ def _arena_submit_intent(args: list[str]) -> dict:
 
     arena_run_id = args[0]
     actor_id = args[1]
+    require_real_submission = str(args[2]).strip().lower() in {"1", "true", "yes", "on"} if len(args) > 2 else False
     _require_authenticated_actor(actor_id)
     store = _operator_store()
     run = store.get_arena_run(arena_run_id)
@@ -731,10 +738,14 @@ def _arena_submit_intent(args: list[str]) -> dict:
     intent_commitment = str(intent.get("intent_commitment", "")).strip()
     if not intent_commitment:
         raise ValueError("intent_commitment is required")
-    submission = SolanaAgentKitAdapter().submit_onchain_intent(
+    adapter = SolanaAgentKitAdapter()
+    submission = adapter.submit_onchain_intent(
         intent_commitment=intent_commitment,
         cluster=cluster,
     )
+    mode = str(submission.get("metadata", {}).get("adapter_mode", adapter.bridge_mode))
+    if require_real_submission and "stub" in mode:
+        raise ValueError("submission used stub mode while real submission is required")
     updated = store.update_arena_run_metadata(
         arena_run_id,
         {"onchain_submission": submission},

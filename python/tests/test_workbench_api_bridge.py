@@ -2,6 +2,7 @@ import json
 import os
 import importlib.util
 from pathlib import Path
+import pytest
 
 
 def _load_bridge_module():
@@ -118,6 +119,25 @@ def test_workbench_bridge_uses_isolated_store_paths(tmp_path):
         submit_again = _run_bridge(module, "arena_submit_intent", [arena_run["arena_run_id"], actor_id])
         assert submit_again["already_submitted"] is True
         assert submit_again["onchain_submission"]["signature"] == submit_payload["onchain_submission"]["signature"]
+
+        strict_scenario_json = tmp_path / "arena-scenario-strict.json"
+        strict_scenario_json.write_text(
+            json.dumps({"id": "arena-strict", "checks": ["wallet"]}),
+            encoding="utf-8",
+        )
+        os.environ["OPENLVM_SOLANA_BRIDGE_MODE"] = "stub"
+        with pytest.raises(ValueError):
+            module._arena_run(
+                [
+                    "AgentPubKeyStrict111",
+                    str(strict_scenario_json),
+                    actor_id,
+                    "embedded",
+                    "",
+                    "1",
+                    "1",
+                ]
+            )
     finally:
         os.environ.clear()
         os.environ.update(old_env)
