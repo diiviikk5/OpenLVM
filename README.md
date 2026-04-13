@@ -25,6 +25,7 @@ openlvm collection-run <collection-id>
 openlvm baseline-compare <collection-id> <run-id>
 openlvm arena-run --agent <pubkey> --scenario ..\solana\scenarios\usdc-payment-smoke.json
 openlvm arena-runs
+openlvm arena-integrations
 openlvm mcp-serve
 ```
 
@@ -33,6 +34,7 @@ openlvm mcp-serve
 Prerequisites:
 - Zig 0.14.x
 - Python 3.10+
+- Solana CLI (for Arena flows): `curl -fsSL https://www.solana.new/setup.sh | bash`
 
 Build and install:
 
@@ -94,6 +96,7 @@ Auth-ready API boundaries:
 - Workbench API routes now map auth/permission/resource errors to `401`/`403`/`404` consistently instead of generic `500`.
 - All workbench endpoints except `/api/workbench/session` now require an authenticated signed session and return `401` when missing.
 - Bridge-layer stores can be isolated with `OPENLVM_OPERATOR_DB` and `OPENLVM_EVAL_DB` (useful for tests and sandboxed runs).
+- Solana Arena MVP runs now attach simulated x402 USDC settlement metadata and a deterministic `trace_commitment` hash.
 
 Run tests:
 

@@ -1,0 +1,32 @@
+{
+  "integrations": [
+    {
+      "id": "agentkit",
+      "name": "Solana AgentKit",
+      "kind": "agent-runtime",
+      "required_tools": ["node"],
+      "status": "mvp"
+    },
+    {
+      "id": "elizaos",
+      "name": "elizaOS",
+      "kind": "agent-runtime",
+      "required_tools": ["node"],
+      "status": "planned"
+    },
+    {
+      "id": "x402",
+      "name": "x402 Payments",
+      "kind": "payments",
+      "required_tools": ["solana"],
+      "status": "mvp-simulated"
+    },
+    {
+      "id": "wallet_adapter",
+      "name": "Solana Wallet Adapter",
+      "kind": "frontend-wallet",
+      "required_tools": ["node"],
+      "status": "planned"
+    }
+  ]
+}

@@ -81,6 +81,26 @@ def test_workbench_bridge_uses_isolated_store_paths(tmp_path):
         assert any(col["collection_id"] == collection["collection_id"] for col in overview["collections"])
         assert operator_db.exists(), "operator db path from env was not used"
         assert eval_db.exists(), "eval db path from env was not used"
+
+        scenario_json = tmp_path / "arena-scenario.json"
+        scenario_json.write_text(
+            json.dumps(
+                {
+                    "id": "arena-smoke",
+                    "checks": ["wallet", "payment"],
+                    "entry_fee_usdc": 0.07,
+                    "arena_opponent": "agent-opponent",
+                }
+            ),
+            encoding="utf-8",
+        )
+        arena_run = _run_bridge(
+            module,
+            "arena_run",
+            ["AgentPubKeyTest111", str(scenario_json), actor_id, "embedded", ""],
+        )
+        assert arena_run["metadata"]["x402"]["x402_status"] == "simulated_settled"
+        assert str(arena_run["metadata"]["trace_commitment"]).startswith("sha256:")
     finally:
         os.environ.clear()
         os.environ.update(old_env)

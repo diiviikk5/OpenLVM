@@ -2,11 +2,28 @@
 
 This folder hosts Solana-specific components for OpenLVM Arena.
 
+## Solana CLI setup
+
+Recommended install command:
+
+```bash
+curl -fsSL https://www.solana.new/setup.sh | bash
+```
+
+After install, restart shell and confirm:
+
+```bash
+solana --version
+```
+
 ## Current MVP state
 
 - `openlvm arena-run --agent <pubkey> --scenario <json>` is available in the Python CLI.
+- `openlvm arena-integrations` lists hub integrations and local readiness.
 - Arena runs are persisted in the operator store (`arena_runs` table).
-- Solana connectivity is currently routed through a lightweight `SolanaAgentKitAdapter` stub for local development.
+- Solana connectivity is routed through `solana/agentkit_bridge.mjs` (Node bridge) with Python stub fallback.
+- Arena runs now include simulated x402 payment settlement metadata and a `sha256` trace commitment.
+- Integration registry lives at `solana/integrations/registry.json`.
 
 ## Next implementation targets
 

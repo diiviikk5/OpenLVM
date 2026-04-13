@@ -9,5 +9,7 @@
   "context": {
     "network": "devnet",
     "token": "USDC"
-  }
+  },
+  "arena_opponent": "arena-pool",
+  "entry_fee_usdc": 0.05
 }

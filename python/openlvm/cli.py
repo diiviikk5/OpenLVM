@@ -11,12 +11,14 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+from .arena import build_trace_commitment
 from .eval_store import EvalStore
 from .integrations import DeepEvalAdapter, OpenLLMetryAdapter, PromptfooAdapter, SolanaAgentKitAdapter
 from .mcp_server import serve as serve_mcp
 from .operator_store import OperatorStore
 from .orchestrator import TestOrchestrator
 from .runtime import OpenLVMError, OpenLVMRuntime, create_runtime
+from .solana_hub import integration_readiness, load_solana_integrations
 
 app = typer.Typer(help="OpenLVM - Performance-first Agent-Native VM Runtime")
 console = Console()
@@ -92,6 +94,7 @@ def doctor():
     """Inspect local OpenLVM readiness."""
     runtime = create_runtime()
     zig_installed = shutil.which("zig") is not None
+    solana_installed = shutil.which("solana") is not None
     runtime_mode = os.getenv("OPENLVM_RUNTIME") or "auto"
     shared_lib = OpenLVMRuntime._default_library_path()
 
@@ -102,6 +105,13 @@ def doctor():
     table.add_row("runtime backend", "ok", runtime.backend)
     table.add_row("runtime mode", "ok", runtime_mode)
     table.add_row("zig", "ok" if zig_installed else "missing", "installed" if zig_installed else "not on PATH")
+    table.add_row(
+        "solana cli",
+        "ok" if solana_installed else "missing",
+        "installed"
+        if solana_installed
+        else "run: curl -fsSL https://www.solana.new/setup.sh | bash",
+    )
     table.add_row("shared library", "ok" if shared_lib.exists() else "missing", str(shared_lib))
     table.add_row("promptfoo adapter", "ok", "available" if PromptfooAdapter().available else "npx not found")
     table.add_row("deepeval adapter", "ok", "available" if DeepEvalAdapter().available else "fallback mode")
@@ -479,11 +489,28 @@ def arena_run(
     check_count = len(checks) if isinstance(checks, list) else 0
     score = round(min(0.6 + check_count * 0.05, 0.99), 2)
     status = "passed" if score >= 0.75 else "warning"
+    entry_fee_usdc = float(payload.get("entry_fee_usdc", 0.05))
+    opponent = str(payload.get("arena_opponent", "arena-pool"))
 
     identity = SolanaAgentKitAdapter().connect_agent(
         agent_address=agent,
         wallet_provider=wallet_provider,
         private_key=private_key,
+    )
+    payment = SolanaAgentKitAdapter().simulate_x402_transfer(
+        from_agent=identity.address,
+        to_agent=opponent,
+        amount_usdc=entry_fee_usdc,
+    )
+    trace_commitment = build_trace_commitment(
+        {
+            "agent": identity.address,
+            "scenario_id": scenario_id,
+            "score": score,
+            "status": status,
+            "x402": payment,
+            "scenario": payload,
+        }
     )
     record = OperatorStore().create_arena_run(
         identity.address,
@@ -493,6 +520,8 @@ def arena_run(
         metadata={
             "wallet_provider": identity.wallet_provider,
             "adapter_mode": identity.metadata.get("adapter_mode", "mvp-local"),
+            "x402": payment,
+            "trace_commitment": trace_commitment,
             "scenario": payload,
         },
         actor_id=actor_id,
@@ -502,7 +531,9 @@ def arena_run(
         f"[bold green]Arena run complete:[/bold green] {record.arena_run_id}\n"
         f"Agent: {record.agent_address}\n"
         f"Scenario: {record.scenario_id}\n"
-        f"Score: {record.score:.2f} ({record.status})"
+        f"Score: {record.score:.2f} ({record.status})\n"
+        f"x402: {payment.get('x402_status')} {payment.get('amount_usdc')} USDC ({payment.get('tx_ref')})\n"
+        f"Trace commitment: {trace_commitment}"
     )
 
 
@@ -518,6 +549,29 @@ def arena_runs(limit: int = typer.Option(20, "--limit", "-n", help="Number of re
     table.add_column("Status")
     for row in rows:
         table.add_row(row.arena_run_id, row.agent_address, row.scenario_id, f"{row.score:.2f}", row.status)
+    console.print(table)
+
+
+@app.command("arena-integrations")
+def arena_integrations():
+    """List Solana integration hub entries and local readiness."""
+    rows = [integration_readiness(row) for row in load_solana_integrations()]
+    table = Table(title="Solana Integration Hub")
+    table.add_column("ID", style="cyan")
+    table.add_column("Name", style="green")
+    table.add_column("Kind", style="yellow")
+    table.add_column("Stage", style="magenta")
+    table.add_column("Ready")
+    table.add_column("Missing Tools")
+    for row in rows:
+        table.add_row(
+            str(row["id"]),
+            str(row["name"]),
+            str(row["kind"]),
+            str(row["status"]),
+            "yes" if row["ready"] else "no",
+            ", ".join(row["missing_tools"]) if row["missing_tools"] else "-",
+        )
     console.print(table)
 
 
