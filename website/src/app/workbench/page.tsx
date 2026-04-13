@@ -71,6 +71,15 @@ type CompareHistoryEntry = {
   source: "compare" | "artifact_replay" | "artifact_rerun";
   created_at: string;
 };
+type ArenaRun = {
+  arena_run_id: string;
+  agent_address: string;
+  scenario_id: string;
+  score: number;
+  status: string;
+  created_at: string;
+  actor_id: string;
+};
 type RunInspection = {
   run: {
     run_id: string;
@@ -102,6 +111,7 @@ type Overview = {
   baselines_by_collection: Record<string, Baseline[]>;
   scenarios_by_collection: Record<string, Scenario[]>;
   compare_artifacts_by_collection: Record<string, CompareArtifact[]>;
+  arena_runs: ArenaRun[];
   members_by_workspace: Record<string, WorkspaceMember[]>;
   user_role_by_workspace: Record<string, string>;
   recent_runs: Run[];
@@ -184,6 +194,8 @@ export default function WorkbenchPage() {
   const [artifactPresetId, setArtifactPresetId] = useState("");
   const [selectedArtifactIds, setSelectedArtifactIds] = useState<string[]>([]);
   const [compareHistory, setCompareHistory] = useState<CompareHistoryEntry[]>([]);
+  const [arenaAgentAddress, setArenaAgentAddress] = useState("");
+  const [arenaScenarioPath, setArenaScenarioPath] = useState("solana/scenarios/usdc-payment-smoke.json");
 
   const [workspaceName, setWorkspaceName] = useState("");
   const [collectionWorkspace, setCollectionWorkspace] = useState("");
@@ -796,6 +808,23 @@ export default function WorkbenchPage() {
     }
   };
 
+  const runArenaScenario = async () => {
+    if (!arenaAgentAddress.trim() || !arenaScenarioPath.trim()) {
+      setError("Arena agent address and scenario path are required");
+      return;
+    }
+    try {
+      const result = await postJson<ArenaRun>("/api/workbench/arena", {
+        agent_address: arenaAgentAddress.trim(),
+        scenario_path: arenaScenarioPath.trim(),
+      });
+      await load();
+      setMsg(`Arena run complete: ${result.arena_run_id}`);
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
   const switchSessionUser = async () => {
     const nextUser = sessionUserInput.trim();
     if (!nextUser) {
@@ -1312,6 +1341,42 @@ export default function WorkbenchPage() {
             </div>
           ))}
           {compareHistory.length === 0 && <p className="text-warm-silver">No compare history yet.</p>}
+        </div>
+      </section>
+
+      <section className="border border-border-dark rounded-xl p-4 mt-4">
+        <h2 className="text-xl mb-2">Solana Arena (MVP)</h2>
+        <div className="grid gap-2 md:grid-cols-3">
+          <input
+            className="bg-dark-surface p-2 rounded"
+            placeholder="agent pubkey/address"
+            value={arenaAgentAddress}
+            onChange={(e) => setArenaAgentAddress(e.target.value)}
+          />
+          <input
+            className="bg-dark-surface p-2 rounded md:col-span-2"
+            placeholder="scenario path"
+            value={arenaScenarioPath}
+            onChange={(e) => setArenaScenarioPath(e.target.value)}
+          />
+        </div>
+        <button className="mt-2 bg-terracotta px-3 py-1 rounded" onClick={() => void runArenaScenario()}>
+          Run Arena Scenario
+        </button>
+        <div className="space-y-2 text-sm max-h-56 overflow-auto mt-3">
+          {(overview?.arena_runs || []).map((row) => (
+            <div key={row.arena_run_id} className="flex items-center justify-between border border-border-dark rounded p-2">
+              <div>
+                <div>{row.arena_run_id}</div>
+                <div className="text-warm-silver">{row.agent_address} | {row.scenario_id}</div>
+              </div>
+              <div className="text-right">
+                <div>{row.score.toFixed(2)} ({row.status})</div>
+                <div className="text-warm-silver">{new Date(row.created_at).toLocaleString()}</div>
+              </div>
+            </div>
+          ))}
+          {(overview?.arena_runs || []).length === 0 && <p className="text-warm-silver">No arena runs yet.</p>}
         </div>
       </section>
 

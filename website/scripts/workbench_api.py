@@ -110,6 +110,7 @@ def _overview(args: list[str]) -> dict:
         ]
         for col in collections
     }
+    arena_runs = [row.model_dump() for row in op_store.list_arena_runs(limit=50)]
     recent_runs = [run.model_dump() for run in eval_store.list_runs(limit=20)]
     members_by_workspace = {
         ws["workspace_id"]: [m.model_dump() for m in op_store.list_workspace_members(ws["workspace_id"])]
@@ -125,6 +126,7 @@ def _overview(args: list[str]) -> dict:
         "baselines_by_collection": baselines_by_collection,
         "scenarios_by_collection": scenarios_by_collection,
         "compare_artifacts_by_collection": compare_artifacts_by_collection,
+        "arena_runs": arena_runs,
         "members_by_workspace": members_by_workspace,
         "user_role_by_workspace": user_role_by_workspace,
         "recent_runs": recent_runs,
@@ -595,6 +597,54 @@ def _remove_workspace_member(args: list[str]) -> dict:
     return {"deleted": deleted, "workspace_id": workspace_id, "user_id": user_id}
 
 
+def _arena_run(args: list[str]) -> dict:
+    if len(args) < 3:
+        raise ValueError("agent_address, scenario_path, and actor_id are required")
+    from openlvm.integrations import SolanaAgentKitAdapter
+
+    agent_address = args[0]
+    scenario_path = Path(args[1])
+    actor_id = args[2]
+    wallet_provider = args[3] if len(args) > 3 and args[3] else "embedded"
+    private_key = args[4] if len(args) > 4 and args[4] else None
+    _require_authenticated_actor(actor_id)
+    if not scenario_path.exists():
+        raise FileNotFoundError(f"Scenario file not found: {scenario_path}")
+    payload = json.loads(scenario_path.read_text(encoding="utf-8"))
+    scenario_id = str(payload.get("id") or scenario_path.stem)
+    checks = payload.get("checks", [])
+    check_count = len(checks) if isinstance(checks, list) else 0
+    score = round(min(0.6 + check_count * 0.05, 0.99), 2)
+    status = "passed" if score >= 0.75 else "warning"
+    identity = SolanaAgentKitAdapter().connect_agent(
+        agent_address=agent_address,
+        wallet_provider=wallet_provider,
+        private_key=private_key,
+    )
+    record = _operator_store().create_arena_run(
+        identity.address,
+        scenario_id,
+        score,
+        status,
+        metadata={
+            "wallet_provider": identity.wallet_provider,
+            "adapter_mode": identity.metadata.get("adapter_mode", "mvp-local"),
+            "scenario_path": str(scenario_path),
+            "scenario": payload,
+        },
+        actor_id=actor_id,
+    )
+    return record.model_dump()
+
+
+def _arena_runs(args: list[str]) -> dict:
+    actor_id = args[0] if len(args) > 0 else "system"
+    limit = int(args[1]) if len(args) > 1 and args[1] else 50
+    _require_authenticated_actor(actor_id)
+    rows = _operator_store().list_arena_runs(limit=max(1, min(limit, 200)))
+    return {"arena_runs": [row.model_dump() for row in rows]}
+
+
 def _main() -> int:
     _bootstrap()
     if len(sys.argv) < 2:
@@ -653,6 +703,10 @@ def _main() -> int:
             result = _upsert_workspace_member(args)
         elif command == "remove_workspace_member":
             result = _remove_workspace_member(args)
+        elif command == "arena_run":
+            result = _arena_run(args)
+        elif command == "arena_runs":
+            result = _arena_runs(args)
         else:
             raise ValueError(f"unknown command: {command}")
         print(json.dumps(result))

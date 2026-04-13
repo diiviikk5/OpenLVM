@@ -72,6 +72,7 @@ Available API routes:
 - `POST /api/workbench/baseline`
 - `GET/POST/DELETE /api/workbench/artifact` (save/list/download/delete/prune compare artifacts, including bulk delete via `artifact_ids`)
 - `GET/POST/DELETE /api/workbench/member` (workspace member list/upsert/remove with role checks)
+- `GET/POST /api/workbench/arena` (list/create Solana Arena MVP runs)
 - `GET/POST/DELETE /api/workbench/session` (signed session cookie bootstrap/rotation/clear)
 
 `POST /api/workbench/compare` accepts optional `baseline_ids` to compare one candidate run against multiple saved baselines in a single call.
