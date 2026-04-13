@@ -16,11 +16,13 @@ export async function POST(
     const { arenaRunId } = await params;
     const payload = (await request.json().catch(() => ({}))) as {
       require_real_submission?: boolean;
+      cluster?: string;
     };
     const data = await runWorkbenchBridge("arena_submit_intent", [
       arenaRunId,
       ctx.actorId,
       payload.require_real_submission ? "1" : "0",
+      payload.cluster || "",
     ]);
     if (typeof data === "object" && data && "error" in data) {
       const detail = String((data as { error: string }).error);

@@ -476,6 +476,7 @@ def arena_run(
     scenario: Path = typer.Option(..., "--scenario", help="Path to scenario JSON payload"),
     wallet_provider: str = typer.Option("embedded", "--wallet-provider", help="Wallet mode: embedded|private_key|external"),
     private_key: Optional[str] = typer.Option(None, "--private-key", help="Optional private key for local test wallets"),
+    cluster: Optional[str] = typer.Option(None, "--cluster", help="Solana cluster override (devnet|testnet|mainnet-beta)"),
     submit_intent: bool = typer.Option(False, "--submit-intent", help="Submit onchain intent immediately after run"),
     require_real_submission: bool = typer.Option(
         False,
@@ -489,6 +490,7 @@ def arena_run(
         console.print(f"[bold red]Scenario file not found:[/bold red] {scenario}")
         raise typer.Exit(code=1)
 
+    cluster_name = (cluster or os.getenv("OPENLVM_SOLANA_CLUSTER", "devnet")).strip() or "devnet"
     payload = json.loads(scenario.read_text(encoding="utf-8"))
     scenario_id = str(payload.get("id") or scenario.stem)
     checks = payload.get("checks", [])
@@ -526,7 +528,7 @@ def arena_run(
         status=status,
         payment=payment,
         trace_commitment=trace_commitment,
-        cluster=os.getenv("OPENLVM_SOLANA_CLUSTER", "devnet"),
+        cluster=cluster_name,
     )
     metadata = {
         "wallet_provider": identity.wallet_provider,
@@ -538,13 +540,13 @@ def arena_run(
     }
     if submit_intent:
         intent_commitment = str(onchain_intent.get("intent_commitment", "")).strip()
-        cluster = str(onchain_intent.get("cluster", "devnet") or "devnet")
+        submission_cluster = str(onchain_intent.get("cluster", "devnet") or "devnet")
         if not intent_commitment:
             console.print("[bold red]Intent commitment missing.[/bold red]")
             raise typer.Exit(code=1)
         submission = adapter.submit_onchain_intent(
             intent_commitment=intent_commitment,
-            cluster=cluster,
+            cluster=submission_cluster,
         )
         mode = str(submission.get("metadata", {}).get("adapter_mode", adapter.bridge_mode))
         if require_real_submission and "stub" in mode:
@@ -625,6 +627,7 @@ def arena_intent(
 @app.command("arena-submit")
 def arena_submit(
     arena_run_id: str = typer.Argument(..., help="Arena run id"),
+    cluster: Optional[str] = typer.Option(None, "--cluster", help="Override cluster for submission"),
     require_real_submission: bool = typer.Option(
         False,
         "--require-real-submission",
@@ -640,7 +643,7 @@ def arena_submit(
         console.print(f"[bold red]No onchain intent found for run:[/bold red] {arena_run_id}")
         raise typer.Exit(code=1)
     intent_commitment = str(intent.get("intent_commitment", "")).strip()
-    cluster = str(intent.get("cluster", "devnet") or "devnet")
+    cluster_name = (cluster or str(intent.get("cluster", "devnet"))).strip() or "devnet"
     if not intent_commitment:
         console.print("[bold red]Intent commitment missing.[/bold red]")
         raise typer.Exit(code=1)
@@ -655,7 +658,7 @@ def arena_submit(
     adapter = SolanaAgentKitAdapter()
     submission = adapter.submit_onchain_intent(
         intent_commitment=intent_commitment,
-        cluster=cluster,
+        cluster=cluster_name,
     )
     mode = str(submission.get("metadata", {}).get("adapter_mode", adapter.bridge_mode))
     if require_real_submission and "stub" in mode:

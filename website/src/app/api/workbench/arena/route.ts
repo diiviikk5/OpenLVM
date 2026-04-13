@@ -35,6 +35,7 @@ export async function POST(request: NextRequest) {
       private_key?: string;
       submit_intent?: boolean;
       require_real_submission?: boolean;
+      cluster?: string;
     };
     if (!payload.agent_address || !payload.scenario_path) {
       return contextError("agent_address and scenario_path are required", ctx, 400);
@@ -47,6 +48,7 @@ export async function POST(request: NextRequest) {
       payload.private_key || "",
       payload.submit_intent ? "1" : "0",
       payload.require_real_submission ? "1" : "0",
+      payload.cluster || "",
     ]);
     if (typeof data === "object" && data && "error" in data) {
       const detail = String((data as { error: string }).error);

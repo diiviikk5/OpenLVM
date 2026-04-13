@@ -102,11 +102,12 @@ def test_workbench_bridge_uses_isolated_store_paths(tmp_path):
         arena_run = _run_bridge(
             module,
             "arena_run",
-            ["AgentPubKeyTest111", str(scenario_json), actor_id, "embedded", "", "1"],
+            ["AgentPubKeyTest111", str(scenario_json), actor_id, "embedded", "", "1", "0", "testnet"],
         )
         assert arena_run["metadata"]["x402"]["x402_status"] == "simulated_settled"
         assert str(arena_run["metadata"]["trace_commitment"]).startswith("sha256:")
         assert arena_run["metadata"]["onchain_intent"]["schema"] == "openlvm.arena.intent.v1"
+        assert arena_run["metadata"]["onchain_intent"]["cluster"] == "testnet"
         assert arena_run["metadata"]["onchain_submission"]["submission_status"] == "simulated_confirmed"
         assert (
             arena_run["metadata"]["onchain_intent"]["seed_bundle"]["trace_commitment"]
@@ -116,10 +117,11 @@ def test_workbench_bridge_uses_isolated_store_paths(tmp_path):
         intent_payload = _run_bridge(module, "arena_intent", [arena_run["arena_run_id"], actor_id])
         assert intent_payload["arena_run_id"] == arena_run["arena_run_id"]
         assert intent_payload["onchain_intent"]["schema"] == "openlvm.arena.intent.v1"
-        submit_payload = _run_bridge(module, "arena_submit_intent", [arena_run["arena_run_id"], actor_id])
+        submit_payload = _run_bridge(module, "arena_submit_intent", [arena_run["arena_run_id"], actor_id, "0", "devnet"])
         assert submit_payload["arena_run_id"] == arena_run["arena_run_id"]
         assert submit_payload["onchain_submission"]["submission_status"] == "simulated_confirmed"
         assert submit_payload["onchain_submission"]["signature"]
+        assert submit_payload["onchain_submission"]["cluster"] == "testnet"
         submit_again = _run_bridge(module, "arena_submit_intent", [arena_run["arena_run_id"], actor_id])
         assert submit_again["already_submitted"] is True
         assert submit_again["onchain_submission"]["signature"] == submit_payload["onchain_submission"]["signature"]

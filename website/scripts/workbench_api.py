@@ -610,6 +610,7 @@ def _arena_run(args: list[str]) -> dict:
     private_key = args[4] if len(args) > 4 and args[4] else None
     submit_intent = str(args[5]).strip().lower() in {"1", "true", "yes", "on"} if len(args) > 5 else False
     require_real_submission = str(args[6]).strip().lower() in {"1", "true", "yes", "on"} if len(args) > 6 else False
+    cluster_name = args[7].strip() if len(args) > 7 and args[7] else os.getenv("OPENLVM_SOLANA_CLUSTER", "devnet")
     _require_authenticated_actor(actor_id)
     if not scenario_path.exists():
         raise FileNotFoundError(f"Scenario file not found: {scenario_path}")
@@ -649,7 +650,7 @@ def _arena_run(args: list[str]) -> dict:
         status=status,
         payment=payment,
         trace_commitment=trace_commitment,
-        cluster=os.getenv("OPENLVM_SOLANA_CLUSTER", "devnet"),
+        cluster=cluster_name,
     )
     metadata = {
         "wallet_provider": identity.wallet_provider,
@@ -744,6 +745,7 @@ def _arena_submit_intent(args: list[str]) -> dict:
     arena_run_id = args[0]
     actor_id = args[1]
     require_real_submission = str(args[2]).strip().lower() in {"1", "true", "yes", "on"} if len(args) > 2 else False
+    cluster_override = args[3].strip() if len(args) > 3 and args[3] else ""
     _require_authenticated_actor(actor_id)
     store = _operator_store()
     run = store.get_arena_run(arena_run_id)
@@ -758,7 +760,7 @@ def _arena_submit_intent(args: list[str]) -> dict:
             "onchain_submission": existing_submission,
             "already_submitted": True,
         }
-    cluster = str(intent.get("cluster", "devnet") or "devnet")
+    cluster = cluster_override or str(intent.get("cluster", "devnet") or "devnet")
     intent_commitment = str(intent.get("intent_commitment", "")).strip()
     if not intent_commitment:
         raise ValueError("intent_commitment is required")

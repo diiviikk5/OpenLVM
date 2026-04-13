@@ -228,6 +228,7 @@ export default function WorkbenchPage() {
   const [arenaScenarioPath, setArenaScenarioPath] = useState("solana/scenarios/usdc-payment-smoke.json");
   const [arenaSubmitIntentOnRun, setArenaSubmitIntentOnRun] = useState(true);
   const [arenaRequireRealSubmission, setArenaRequireRealSubmission] = useState(false);
+  const [arenaCluster, setArenaCluster] = useState("devnet");
   const [arenaReadiness, setArenaReadiness] = useState<ArenaReadiness | null>(null);
 
   const [workspaceName, setWorkspaceName] = useState("");
@@ -864,6 +865,7 @@ export default function WorkbenchPage() {
         scenario_path: arenaScenarioPath.trim(),
         submit_intent: arenaSubmitIntentOnRun,
         require_real_submission: arenaRequireRealSubmission,
+        cluster: arenaCluster,
       });
       await load();
       await loadArenaReadiness();
@@ -898,7 +900,10 @@ export default function WorkbenchPage() {
       const res = await fetch(`/api/workbench/arena/${encodeURIComponent(arenaRunId)}/submit`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ require_real_submission: arenaRequireRealSubmission }),
+        body: JSON.stringify({
+          require_real_submission: arenaRequireRealSubmission,
+          cluster: arenaCluster,
+        }),
       });
       const data = (await res.json()) as { error?: string; onchain_submission?: { signature?: string } };
       if (!res.ok || data.error) throw new Error(data.error || "arena intent submit failed");
@@ -1444,13 +1449,18 @@ export default function WorkbenchPage() {
             value={arenaScenarioPath}
             onChange={(e) => setArenaScenarioPath(e.target.value)}
           />
+          <select className="bg-dark-surface p-2 rounded" value={arenaCluster} onChange={(e) => setArenaCluster(e.target.value)}>
+            <option value="devnet">devnet</option>
+            <option value="testnet">testnet</option>
+            <option value="mainnet-beta">mainnet-beta</option>
+          </select>
         </div>
         <button className="mt-2 bg-terracotta px-3 py-1 rounded" onClick={() => void runArenaScenario()}>
           Run Arena Scenario
         </button>
         <div className="mt-2 text-xs text-warm-silver border border-border-dark rounded p-2">
           <div>
-            readiness: {arenaReadiness?.adapter_mode || "unknown"} | cluster {arenaReadiness?.cluster || "devnet"} |{" "}
+            readiness: {arenaReadiness?.adapter_mode || "unknown"} | default {arenaReadiness?.cluster || "devnet"} | target {arenaCluster} |{" "}
             {arenaReadiness?.can_real_submission ? "real submit ready" : "stub mode"}
           </div>
           {arenaReadiness && !arenaReadiness.can_real_submission && arenaReadiness.reasons.length > 0 && (

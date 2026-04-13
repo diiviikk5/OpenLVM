@@ -231,6 +231,7 @@ def test_arena_submit_command_persists_submission(tmp_path, monkeypatch):
     assert "Arena intent submitted" in result.stdout
     updated = store.get_arena_run(run.arena_run_id)
     assert updated.metadata["onchain_submission"]["signature"]
+    assert updated.metadata["onchain_submission"]["cluster"] == "devnet"
 
 
 def test_arena_submit_command_is_idempotent(tmp_path, monkeypatch):
@@ -287,12 +288,15 @@ def test_arena_run_can_auto_submit_intent(tmp_path, monkeypatch):
             "AgentPubKeyAuto111",
             "--scenario",
             str(scenario_path),
+            "--cluster",
+            "testnet",
             "--submit-intent",
         ],
     )
     assert result.exit_code == 0
     rows = store.list_arena_runs(limit=1)
     assert rows[0].metadata["onchain_submission"]["signature"]
+    assert rows[0].metadata["onchain_intent"]["cluster"] == "testnet"
 
 
 def test_arena_run_require_real_submission_fails_on_stub(tmp_path, monkeypatch):

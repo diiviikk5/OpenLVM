@@ -26,9 +26,10 @@ openlvm baseline-compare <collection-id> <run-id>
 openlvm arena-run --agent <pubkey> --scenario ..\solana\scenarios\usdc-payment-smoke.json
 openlvm arena-run --agent <pubkey> --scenario ..\solana\scenarios\usdc-payment-smoke.json --submit-intent
 openlvm arena-run --agent <pubkey> --scenario ..\solana\scenarios\usdc-payment-smoke.json --submit-intent --require-real-submission
+openlvm arena-run --agent <pubkey> --scenario ..\solana\scenarios\usdc-payment-smoke.json --cluster testnet
 openlvm arena-runs
 openlvm arena-intent <arena-run-id>
-openlvm arena-submit <arena-run-id> --require-real-submission
+openlvm arena-submit <arena-run-id> --cluster mainnet-beta --require-real-submission
 openlvm arena-integrations
 openlvm mcp-serve
 ```
