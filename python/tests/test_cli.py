@@ -179,3 +179,27 @@ def test_collection_run_command(tmp_path, monkeypatch):
     assert result.exit_code == 0
     assert "Collection run complete" in result.stdout
     assert "Support" in result.stdout
+
+
+def test_arena_intent_command_outputs_json(tmp_path, monkeypatch):
+    store = OperatorStore(tmp_path / "operator_store.db")
+    run = store.create_arena_run(
+        "AgentPubKey111",
+        "scenario-usdc-transfer",
+        0.88,
+        "passed",
+        metadata={
+            "trace_commitment": "sha256:test",
+            "onchain_intent": {
+                "schema": "openlvm.arena.intent.v1",
+                "intent_commitment": "sha256:intent",
+            },
+        },
+        actor_id="arena#test",
+    )
+    monkeypatch.setattr("openlvm.cli.OperatorStore", lambda: store)
+
+    result = runner.invoke(app, ["arena-intent", run.arena_run_id, "--json"])
+    assert result.exit_code == 0
+    assert '"arena_run_id"' in result.stdout
+    assert "openlvm.arena.intent.v1" in result.stdout

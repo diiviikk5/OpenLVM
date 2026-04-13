@@ -562,6 +562,37 @@ def arena_runs(limit: int = typer.Option(20, "--limit", "-n", help="Number of re
     console.print(table)
 
 
+@app.command("arena-intent")
+def arena_intent(
+    arena_run_id: str = typer.Argument(..., help="Arena run id"),
+    json_output: bool = typer.Option(True, "--json/--text", help="Print JSON (default) or compact text"),
+):
+    """Show the onchain intent payload for one stored arena run."""
+    run = OperatorStore().get_arena_run(arena_run_id)
+    intent = run.metadata.get("onchain_intent")
+    if not isinstance(intent, dict):
+        console.print(f"[bold red]No onchain intent found for run:[/bold red] {arena_run_id}")
+        raise typer.Exit(code=1)
+
+    payload = {
+        "arena_run_id": run.arena_run_id,
+        "agent_address": run.agent_address,
+        "scenario_id": run.scenario_id,
+        "trace_commitment": run.metadata.get("trace_commitment", ""),
+        "onchain_intent": intent,
+    }
+    if json_output:
+        console.print_json(json.dumps(payload))
+        return
+    console.print(
+        f"[bold cyan]{run.arena_run_id}[/bold cyan]\n"
+        f"Agent: {run.agent_address}\n"
+        f"Scenario: {run.scenario_id}\n"
+        f"Trace commitment: {run.metadata.get('trace_commitment', '-')}\n"
+        f"Intent commitment: {intent.get('intent_commitment', '-')}"
+    )
+
+
 @app.command("arena-integrations")
 def arena_integrations():
     """List Solana integration hub entries and local readiness."""
