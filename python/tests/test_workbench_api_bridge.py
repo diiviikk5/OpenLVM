@@ -82,6 +82,10 @@ def test_workbench_bridge_uses_isolated_store_paths(tmp_path):
         assert any(col["collection_id"] == collection["collection_id"] for col in overview["collections"])
         assert operator_db.exists(), "operator db path from env was not used"
         assert eval_db.exists(), "eval db path from env was not used"
+        readiness = _run_bridge(module, "arena_readiness", [actor_id])
+        assert isinstance(readiness["adapter_mode"], str)
+        assert isinstance(readiness["can_real_submission"], bool)
+        assert isinstance(readiness["reasons"], list)
 
         scenario_json = tmp_path / "arena-scenario.json"
         scenario_json.write_text(

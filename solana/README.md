@@ -23,6 +23,7 @@ solana --version
 - `--require-real-submission` can be added to `arena-run --submit-intent` and `arena-submit` to fail if bridge falls back to stub mode.
 - `openlvm arena-intent <arena-run-id>` exports the deterministic onchain intent payload.
 - `openlvm arena-submit <arena-run-id>` submits that intent through the Solana bridge and stores the submission receipt.
+- Workbench `GET /api/workbench/arena/readiness` exposes whether strict real submission is currently possible.
 - `openlvm arena-integrations` lists hub integrations and local readiness.
 - Arena runs are persisted in the operator store (`arena_runs` table).
 - Solana connectivity is routed through `solana/agentkit_bridge.mjs` (Node bridge) with Python stub fallback.

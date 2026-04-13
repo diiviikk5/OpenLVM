@@ -692,6 +692,30 @@ def _arena_runs(args: list[str]) -> dict:
     return {"arena_runs": [row.model_dump() for row in rows]}
 
 
+def _arena_readiness(args: list[str]) -> dict:
+    from openlvm.integrations import SolanaAgentKitAdapter
+
+    actor_id = args[0] if len(args) > 0 else "system"
+    _require_authenticated_actor(actor_id)
+    adapter = SolanaAgentKitAdapter()
+    mode = adapter.bridge_mode
+    can_real_submit = "stub" not in mode
+    reasons: list[str] = []
+    if not can_real_submit:
+        reasons.append("bridge is running in local stub mode")
+    if not adapter.node:
+        reasons.append("node is not available on PATH")
+    if not adapter.bridge_script.exists():
+        reasons.append(f"bridge script not found: {adapter.bridge_script}")
+    return {
+        "adapter_mode": mode,
+        "can_real_submission": can_real_submit,
+        "cluster": os.getenv("OPENLVM_SOLANA_CLUSTER", "devnet"),
+        "bridge_script": str(adapter.bridge_script),
+        "reasons": reasons,
+    }
+
+
 def _arena_intent(args: list[str]) -> dict:
     if len(args) < 2:
         raise ValueError("arena_run_id and actor_id are required")
@@ -820,6 +844,8 @@ def _main() -> int:
             result = _arena_run(args)
         elif command == "arena_runs":
             result = _arena_runs(args)
+        elif command == "arena_readiness":
+            result = _arena_readiness(args)
         elif command == "arena_intent":
             result = _arena_intent(args)
         elif command == "arena_submit_intent":

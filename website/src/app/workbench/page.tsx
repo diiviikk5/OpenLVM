@@ -103,6 +103,13 @@ type ArenaRun = {
     };
   };
 };
+type ArenaReadiness = {
+  adapter_mode: string;
+  can_real_submission: boolean;
+  cluster: string;
+  bridge_script: string;
+  reasons: string[];
+};
 type RunInspection = {
   run: {
     run_id: string;
@@ -221,6 +228,7 @@ export default function WorkbenchPage() {
   const [arenaScenarioPath, setArenaScenarioPath] = useState("solana/scenarios/usdc-payment-smoke.json");
   const [arenaSubmitIntentOnRun, setArenaSubmitIntentOnRun] = useState(true);
   const [arenaRequireRealSubmission, setArenaRequireRealSubmission] = useState(false);
+  const [arenaReadiness, setArenaReadiness] = useState<ArenaReadiness | null>(null);
 
   const [workspaceName, setWorkspaceName] = useState("");
   const [collectionWorkspace, setCollectionWorkspace] = useState("");
@@ -256,6 +264,13 @@ export default function WorkbenchPage() {
     }
   };
 
+  const loadArenaReadiness = async () => {
+    const res = await fetch("/api/workbench/arena/readiness", { cache: "no-store" });
+    const data = (await res.json()) as ArenaReadiness & { error?: string };
+    if (!res.ok || data.error) throw new Error(data.error || "arena readiness failed");
+    setArenaReadiness(data);
+  };
+
   useEffect(() => {
     void (async () => {
       try {
@@ -270,6 +285,11 @@ export default function WorkbenchPage() {
 
         const data = await fetchOverview();
         setOverview(data);
+        const readiness = await fetch("/api/workbench/arena/readiness", { cache: "no-store" });
+        const readinessData = (await readiness.json()) as ArenaReadiness & { error?: string };
+        if (readiness.ok && !readinessData.error) {
+          setArenaReadiness(readinessData);
+        }
         if (data.workspaces[0]) {
           setCollectionWorkspace(data.workspaces[0].workspace_id);
           setMemberWorkspace(data.workspaces[0].workspace_id);
@@ -846,6 +866,7 @@ export default function WorkbenchPage() {
         require_real_submission: arenaRequireRealSubmission,
       });
       await load();
+      await loadArenaReadiness();
       setMsg(`Arena run complete: ${result.arena_run_id}`);
     } catch (e) {
       setError(String(e));
@@ -882,6 +903,7 @@ export default function WorkbenchPage() {
       const data = (await res.json()) as { error?: string; onchain_submission?: { signature?: string } };
       if (!res.ok || data.error) throw new Error(data.error || "arena intent submit failed");
       await load();
+      await loadArenaReadiness();
       setMsg(`Arena intent submitted: ${data.onchain_submission?.signature || arenaRunId}`);
     } catch (e) {
       setError(String(e));
@@ -1426,6 +1448,23 @@ export default function WorkbenchPage() {
         <button className="mt-2 bg-terracotta px-3 py-1 rounded" onClick={() => void runArenaScenario()}>
           Run Arena Scenario
         </button>
+        <div className="mt-2 text-xs text-warm-silver border border-border-dark rounded p-2">
+          <div>
+            readiness: {arenaReadiness?.adapter_mode || "unknown"} | cluster {arenaReadiness?.cluster || "devnet"} |{" "}
+            {arenaReadiness?.can_real_submission ? "real submit ready" : "stub mode"}
+          </div>
+          {arenaReadiness && !arenaReadiness.can_real_submission && arenaReadiness.reasons.length > 0 && (
+            <div className="text-coral mt-1">{arenaReadiness.reasons.join("; ")}</div>
+          )}
+          <button
+            className="mt-1 border border-border-dark px-2 py-1 rounded"
+            onClick={() => {
+              void loadArenaReadiness().catch((e) => setError(String(e)));
+            }}
+          >
+            Refresh Readiness
+          </button>
+        </div>
         <label className="mt-2 flex items-center gap-2 text-xs text-warm-silver">
           <input
             type="checkbox"

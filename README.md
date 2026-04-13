@@ -79,6 +79,7 @@ Available API routes:
 - `GET/POST/DELETE /api/workbench/artifact` (save/list/download/delete/prune compare artifacts, including bulk delete via `artifact_ids`)
 - `GET/POST/DELETE /api/workbench/member` (workspace member list/upsert/remove with role checks)
 - `GET/POST /api/workbench/arena` (list/create Solana Arena MVP runs)
+- `GET /api/workbench/arena/readiness` (bridge readiness for strict real submission)
 - `GET /api/workbench/arena/[arenaRunId]/intent` (fetch export-ready onchain intent payload for one arena run)
 - `POST /api/workbench/arena/[arenaRunId]/submit` (submit stored intent via Solana adapter and persist receipt)
 - `GET/POST/DELETE /api/workbench/session` (signed session cookie bootstrap/rotation/clear)
