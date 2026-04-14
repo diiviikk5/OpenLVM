@@ -48,7 +48,9 @@ We are using `solana.new` as the recommended Solana CLI setup path:
 `curl -fsSL https://www.solana.new/setup.sh | bash`
 
 ## What grant support unlocks
-Grant support accelerates:
+Our ask is intentionally small: funding equivalent to a **Codex Pro subscription** so we can sustain rapid implementation velocity.
+
+This directly supports:
 - production-grade Solana submission path (non-stub, strict mode default for production)
 - on-chain commitment recording and leaderboard indexing
 - scenario libraries and QA-grade run inspection UX for teams/hackathons
