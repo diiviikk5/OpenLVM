@@ -1,1 +1,0 @@
-Superteam team, we are applying with OpenLVM (Solana Agent Arena): a developer-first testing and benchmarking platform for Solana AI agents, with deterministic run traces, baseline comparison, and Solana-ready intent/submission flows; our funding ask is minimal and focused on support equivalent to a Codex Pro subscription.
