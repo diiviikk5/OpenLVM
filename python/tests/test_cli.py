@@ -3,6 +3,7 @@ from pathlib import Path
 
 from typer.testing import CliRunner
 
+import openlvm.cli as cli_module
 from openlvm.cli import app
 from openlvm.eval_store import EvalStore
 from openlvm.models import EvalRun, ScenarioRunResult
@@ -653,6 +654,9 @@ def test_readiness_bundle_writes_expected_artifacts(monkeypatch, tmp_path):
             "arena_preflight": {"ok": True, "checks": []},
             "ci_gate": {"ok": True, "summary": "ci-gate: ok"},
             "action_plan": [{"priority": 1, "title": "Set endpoint", "command": "export OPENLVM_SOLANA_AGENTKIT_ENDPOINT=https://..."}],
+            "readiness_score": 90,
+            "readiness_score_threshold": 80,
+            "readiness_score_ok": True,
         },
     )
     out_dir = tmp_path / "bundle"
@@ -675,6 +679,9 @@ def test_readiness_bundle_fails_when_not_ready(monkeypatch, tmp_path):
             "arena_preflight": {"ok": False, "checks": []},
             "ci_gate": {"ok": False, "summary": "ci-gate: fail"},
             "action_plan": [{"priority": 1, "title": "Enable mode", "command": "export OPENLVM_SOLANA_BRIDGE_MODE=agentkit"}],
+            "readiness_score": 50,
+            "readiness_score_threshold": 80,
+            "readiness_score_ok": False,
         },
     )
     out_dir = tmp_path / "bundle"
@@ -696,6 +703,9 @@ def test_readiness_plan_command_outputs_json(monkeypatch):
             "action_plan": [
                 {"id": "a1", "priority": 1, "title": "Set bridge mode", "command": "export OPENLVM_SOLANA_BRIDGE_MODE=agentkit"}
             ],
+            "readiness_score": 60,
+            "readiness_score_threshold": 80,
+            "readiness_score_ok": False,
         },
     )
     result = runner.invoke(app, ["readiness-plan", "--json"])
@@ -704,3 +714,38 @@ def test_readiness_plan_command_outputs_json(monkeypatch):
     assert payload["ok"] is False
     assert isinstance(payload["action_plan"], list)
     assert payload["action_plan"][0]["priority"] == 1
+    assert payload["readiness_score"] == 60
+    assert payload["readiness_score_threshold"] == 80
+    assert payload["readiness_score_ok"] is False
+
+
+def test_readiness_bundle_payload_enforces_min_score(monkeypatch):
+    monkeypatch.setattr(
+        "openlvm.cli._doctor_payload",
+        lambda: {"ok": True, "backend": "simulated", "checks": [], "missing": []},
+    )
+    monkeypatch.setattr(
+        "openlvm.cli._arena_readiness_payload",
+        lambda: {
+            "can_real_submission": True,
+            "readiness_score": 70,
+            "issues": [],
+            "next_actions": [],
+            "reasons": [],
+        },
+    )
+    monkeypatch.setattr(
+        "openlvm.cli._arena_preflight_payload",
+        lambda **kwargs: {"ok": True, "checks": []},
+    )
+
+    payload = cli_module._readiness_bundle_payload(
+        ping=False,
+        timeout_ms=5000,
+        fail_on_ping_warning=True,
+        min_readiness_score=80,
+    )
+    assert payload["readiness_score"] == 70
+    assert payload["readiness_score_threshold"] == 80
+    assert payload["readiness_score_ok"] is False
+    assert payload["ok"] is False

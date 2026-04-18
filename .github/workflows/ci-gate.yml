@@ -39,7 +39,7 @@ jobs:
         id: gate
         continue-on-error: true
         run: |
-          python -m openlvm.cli readiness-bundle --json --artifacts-dir artifacts
+          python -m openlvm.cli readiness-bundle --json --artifacts-dir artifacts --min-readiness-score 80
 
       - name: Upload gate artifacts
         if: always()

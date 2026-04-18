@@ -288,7 +288,13 @@ def _build_action_plan(doctor: dict, readiness: dict, preflight: dict) -> list[d
     return plan
 
 
-def _readiness_bundle_payload(*, ping: bool, timeout_ms: int, fail_on_ping_warning: bool) -> dict:
+def _readiness_bundle_payload(
+    *,
+    ping: bool,
+    timeout_ms: int,
+    fail_on_ping_warning: bool,
+    min_readiness_score: int = 80,
+) -> dict:
     doctor_payload = _doctor_payload()
     arena_readiness_payload = _arena_readiness_payload()
     arena_preflight_payload = _arena_preflight_payload(
@@ -308,7 +314,10 @@ def _readiness_bundle_payload(*, ping: bool, timeout_ms: int, fail_on_ping_warni
         ),
     }
     action_plan = _build_action_plan(doctor_payload, arena_readiness_payload, arena_preflight_payload)
-    bundle_ok = bool(arena_readiness_payload.get("can_real_submission")) and ci_gate_ok
+    readiness_score = int(arena_readiness_payload.get("readiness_score", 0) or 0)
+    threshold = max(0, min(100, int(min_readiness_score)))
+    readiness_score_ok = readiness_score >= threshold
+    bundle_ok = bool(arena_readiness_payload.get("can_real_submission")) and ci_gate_ok and readiness_score_ok
     return {
         "ok": bundle_ok,
         "doctor": doctor_payload,
@@ -316,6 +325,9 @@ def _readiness_bundle_payload(*, ping: bool, timeout_ms: int, fail_on_ping_warni
         "arena_preflight": arena_preflight_payload,
         "ci_gate": ci_gate_payload,
         "action_plan": action_plan,
+        "readiness_score": readiness_score,
+        "readiness_score_threshold": threshold,
+        "readiness_score_ok": readiness_score_ok,
     }
 
 
@@ -536,6 +548,7 @@ def readiness_bundle(
         "--fail-on-ping-warning/--allow-ping-warning",
         help="When ping is enabled, fail bundle if ping is not successful",
     ),
+    min_readiness_score: int = typer.Option(80, "--min-readiness-score", help="Minimum readiness score required"),
     json_output: bool = typer.Option(False, "--json", help="Print machine-readable JSON output"),
 ):
     """Run all readiness checks and write bundled JSON artifacts for local/CI use."""
@@ -543,6 +556,7 @@ def readiness_bundle(
         ping=ping,
         timeout_ms=timeout_ms,
         fail_on_ping_warning=fail_on_ping_warning,
+        min_readiness_score=min_readiness_score,
     )
     artifacts_dir.mkdir(parents=True, exist_ok=True)
     _write_json_output_file(artifacts_dir / "doctor.json", payload["doctor"])
@@ -570,6 +584,19 @@ def readiness_bundle(
         )
         table.add_row("ci_gate", "ok" if payload["ci_gate"].get("ok") else "missing", str(artifacts_dir / "ci-gate.json"))
         table.add_row("bundle", "ok" if payload.get("ok") else "missing", str(artifacts_dir / "readiness-bundle.json"))
+        table.add_row(
+            "readiness_score",
+            (
+                f"{payload.get('readiness_score', 0)} "
+                f"(min {payload.get('readiness_score_threshold', min_readiness_score)})"
+            )
+            if payload.get("readiness_score_ok")
+            else (
+                f"below threshold: {payload.get('readiness_score', 0)} "
+                f"(min {payload.get('readiness_score_threshold', min_readiness_score)})"
+            ),
+            str(artifacts_dir / "readiness-bundle.json"),
+        )
         console.print(table)
         action_plan = payload.get("action_plan", [])
         if action_plan:
@@ -597,6 +624,7 @@ def readiness_plan(
         "--fail-on-ping-warning/--allow-ping-warning",
         help="When ping is enabled, fail readiness plan if ping is not successful",
     ),
+    min_readiness_score: int = typer.Option(80, "--min-readiness-score", help="Minimum readiness score required"),
     json_output: bool = typer.Option(False, "--json", help="Print machine-readable JSON output"),
     output_file: Optional[Path] = typer.Option(None, "--output-file", help="Write JSON payload to file"),
 ):
@@ -605,10 +633,14 @@ def readiness_plan(
         ping=ping,
         timeout_ms=timeout_ms,
         fail_on_ping_warning=fail_on_ping_warning,
+        min_readiness_score=min_readiness_score,
     )
     payload = {
         "ok": bundle.get("ok", False),
         "action_plan": bundle.get("action_plan", []),
+        "readiness_score": bundle.get("readiness_score", 0),
+        "readiness_score_threshold": bundle.get("readiness_score_threshold", min_readiness_score),
+        "readiness_score_ok": bundle.get("readiness_score_ok", False),
     }
     if output_file:
         _write_json_output_file(output_file, payload)
@@ -616,17 +648,25 @@ def readiness_plan(
         console.print_json(json.dumps(payload))
     else:
         table = Table(title="Readiness Plan")
+        table.add_column("Score", justify="right", style="yellow")
         table.add_column("Priority", justify="right", style="yellow")
         table.add_column("Action", style="cyan")
         table.add_column("Command", style="magenta")
+        table.add_row(
+            f"{payload.get('readiness_score', 0)}/{payload.get('readiness_score_threshold', min_readiness_score)}",
+            "-",
+            "Readiness score",
+            "meets threshold" if payload.get("readiness_score_ok") else "below threshold",
+        )
         for action in payload["action_plan"]:
             table.add_row(
+                "",
                 str(action.get("priority", "")),
                 str(action.get("title", "")),
                 str(action.get("command", "")),
             )
         if not payload["action_plan"]:
-            table.add_row("-", "No actions required", "none")
+            table.add_row("", "-", "No actions required", "none")
         console.print(table)
     if not payload.get("ok"):
         raise typer.Exit(code=1)

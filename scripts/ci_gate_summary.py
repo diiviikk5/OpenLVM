@@ -39,6 +39,9 @@ def _build_summary(artifacts_dir: Path) -> str:
     preflight_missing = [c.get("name") for c in (preflight.get("checks") or []) if c.get("status") != "ok"]
     readiness_reasons = readiness.get("reasons") or []
     action_plan = bundle.get("action_plan") or []
+    readiness_score = int(bundle.get("readiness_score", readiness.get("readiness_score", 0) or 0))
+    readiness_score_threshold = int(bundle.get("readiness_score_threshold", 0) or 0)
+    readiness_score_ok = bool(bundle.get("readiness_score_ok", readiness_score >= readiness_score_threshold))
     top_actions: list[str] = []
     for action in action_plan[:3]:
         if not isinstance(action, dict):
@@ -54,6 +57,8 @@ def _build_summary(artifacts_dir: Path) -> str:
         f"- Doctor: **{doctor_ok}**",
         f"- Arena readiness: **{readiness_ok}**",
         f"- Arena preflight: **{preflight_ok}**",
+        f"- Readiness score: **{readiness_score}** (threshold: `{readiness_score_threshold}`, status: "
+        f"`{'ok' if readiness_score_ok else 'below'}`)",
         f"- Doctor missing checks: `{', '.join(doctor_missing) if doctor_missing else 'none'}`",
         f"- Readiness reasons: `{', '.join(readiness_reasons) if readiness_reasons else 'none'}`",
         f"- Preflight missing checks: `{', '.join(preflight_missing) if preflight_missing else 'none'}`",

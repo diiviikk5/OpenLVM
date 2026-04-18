@@ -44,8 +44,10 @@ openlvm ci-gate --json
 openlvm ci-gate --text --summary
 openlvm ci-gate --output-file .\artifacts\ci-gate.json
 openlvm readiness-bundle --artifacts-dir .\artifacts
+openlvm readiness-bundle --artifacts-dir .\artifacts --min-readiness-score 85
 openlvm readiness-bundle --json
 openlvm readiness-plan
+openlvm readiness-plan --min-readiness-score 85
 openlvm readiness-plan --json
 openlvm arena-integrations
 openlvm mcp-serve
