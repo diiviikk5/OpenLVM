@@ -204,6 +204,35 @@ def _arena_readiness_payload() -> dict:
     return readiness
 
 
+def _readiness_bundle_payload(*, ping: bool, timeout_ms: int, fail_on_ping_warning: bool) -> dict:
+    doctor_payload = _doctor_payload()
+    arena_readiness_payload = _arena_readiness_payload()
+    arena_preflight_payload = _arena_preflight_payload(
+        ping=ping,
+        timeout_ms=timeout_ms,
+        fail_on_ping_warning=fail_on_ping_warning,
+    )
+    ci_gate_ok = bool(doctor_payload.get("ok")) and bool(arena_preflight_payload.get("ok"))
+    ci_gate_payload = {
+        "ok": ci_gate_ok,
+        "doctor": doctor_payload,
+        "arena_preflight": arena_preflight_payload,
+        "summary": (
+            f"ci-gate: {'ok' if ci_gate_ok else 'fail'} "
+            f"| doctor={'ok' if doctor_payload.get('ok') else 'missing'} "
+            f"| arena_preflight={'ok' if arena_preflight_payload.get('ok') else 'missing'}"
+        ),
+    }
+    bundle_ok = bool(arena_readiness_payload.get("can_real_submission")) and ci_gate_ok
+    return {
+        "ok": bundle_ok,
+        "doctor": doctor_payload,
+        "arena_readiness": arena_readiness_payload,
+        "arena_preflight": arena_preflight_payload,
+        "ci_gate": ci_gate_payload,
+    }
+
+
 def _print_run_diff(diff) -> None:
     console.print(
         f"[bold cyan]Comparison[/bold cyan] {diff.baseline_run_id} -> {diff.candidate_run_id}\n"
@@ -405,6 +434,55 @@ def ci_gate(
         table.add_row("overall", "ok" if overall_ok else "missing")
         console.print(table)
     if not overall_ok:
+        raise typer.Exit(code=1)
+
+
+@app.command("readiness-bundle")
+def readiness_bundle(
+    artifacts_dir: Path = typer.Option(Path("artifacts"), "--artifacts-dir", help="Output directory for JSON artifacts"),
+    ping: bool = typer.Option(True, "--ping/--no-ping", help="Include live AgentKit ping in preflight"),
+    timeout_ms: int = typer.Option(5000, "--timeout-ms", help="Timeout for ping request"),
+    fail_on_ping_warning: bool = typer.Option(
+        True,
+        "--fail-on-ping-warning/--allow-ping-warning",
+        help="When ping is enabled, fail bundle if ping is not successful",
+    ),
+    json_output: bool = typer.Option(False, "--json", help="Print machine-readable JSON output"),
+):
+    """Run all readiness checks and write bundled JSON artifacts for local/CI use."""
+    payload = _readiness_bundle_payload(
+        ping=ping,
+        timeout_ms=timeout_ms,
+        fail_on_ping_warning=fail_on_ping_warning,
+    )
+    artifacts_dir.mkdir(parents=True, exist_ok=True)
+    _write_json_output_file(artifacts_dir / "doctor.json", payload["doctor"])
+    _write_json_output_file(artifacts_dir / "arena-readiness.json", payload["arena_readiness"])
+    _write_json_output_file(artifacts_dir / "arena-preflight.json", payload["arena_preflight"])
+    _write_json_output_file(artifacts_dir / "ci-gate.json", payload["ci_gate"])
+    _write_json_output_file(artifacts_dir / "readiness-bundle.json", payload)
+    if json_output:
+        console.print_json(json.dumps(payload))
+    else:
+        table = Table(title="Readiness Bundle")
+        table.add_column("Artifact", style="cyan")
+        table.add_column("Status", style="green")
+        table.add_column("Path", style="magenta")
+        table.add_row("doctor", "ok" if payload["doctor"].get("ok") else "missing", str(artifacts_dir / "doctor.json"))
+        table.add_row(
+            "arena_readiness",
+            "ok" if payload["arena_readiness"].get("can_real_submission") else "missing",
+            str(artifacts_dir / "arena-readiness.json"),
+        )
+        table.add_row(
+            "arena_preflight",
+            "ok" if payload["arena_preflight"].get("ok") else "missing",
+            str(artifacts_dir / "arena-preflight.json"),
+        )
+        table.add_row("ci_gate", "ok" if payload["ci_gate"].get("ok") else "missing", str(artifacts_dir / "ci-gate.json"))
+        table.add_row("bundle", "ok" if payload.get("ok") else "missing", str(artifacts_dir / "readiness-bundle.json"))
+        console.print(table)
+    if not payload.get("ok"):
         raise typer.Exit(code=1)
 
 

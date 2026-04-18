@@ -641,3 +641,42 @@ def test_ci_gate_output_file_writes_json(monkeypatch, tmp_path):
     assert payload["ok"] is True
     assert "doctor" in payload
     assert "arena_preflight" in payload
+
+
+def test_readiness_bundle_writes_expected_artifacts(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        "openlvm.cli._readiness_bundle_payload",
+        lambda **kwargs: {
+            "ok": True,
+            "doctor": {"ok": True, "checks": [], "missing": []},
+            "arena_readiness": {"can_real_submission": True, "adapter_mode": "agentkit-session", "reasons": []},
+            "arena_preflight": {"ok": True, "checks": []},
+            "ci_gate": {"ok": True, "summary": "ci-gate: ok"},
+        },
+    )
+    out_dir = tmp_path / "bundle"
+    result = runner.invoke(app, ["readiness-bundle", "--artifacts-dir", str(out_dir)])
+    assert result.exit_code == 0
+    assert (out_dir / "doctor.json").exists()
+    assert (out_dir / "arena-readiness.json").exists()
+    assert (out_dir / "arena-preflight.json").exists()
+    assert (out_dir / "ci-gate.json").exists()
+    assert (out_dir / "readiness-bundle.json").exists()
+
+
+def test_readiness_bundle_fails_when_not_ready(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        "openlvm.cli._readiness_bundle_payload",
+        lambda **kwargs: {
+            "ok": False,
+            "doctor": {"ok": True, "checks": [], "missing": []},
+            "arena_readiness": {"can_real_submission": False, "adapter_mode": "mvp-local-stub", "reasons": ["missing"]},
+            "arena_preflight": {"ok": False, "checks": []},
+            "ci_gate": {"ok": False, "summary": "ci-gate: fail"},
+        },
+    )
+    out_dir = tmp_path / "bundle"
+    result = runner.invoke(app, ["readiness-bundle", "--artifacts-dir", str(out_dir), "--json"])
+    assert result.exit_code == 1
+    payload = json.loads(result.stdout)
+    assert payload["ok"] is False

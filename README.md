@@ -43,6 +43,8 @@ openlvm arena-preflight --output-file .\artifacts\arena-preflight.json
 openlvm ci-gate --json
 openlvm ci-gate --text --summary
 openlvm ci-gate --output-file .\artifacts\ci-gate.json
+openlvm readiness-bundle --artifacts-dir .\artifacts
+openlvm readiness-bundle --json
 openlvm arena-integrations
 openlvm mcp-serve
 ```

@@ -35,6 +35,7 @@ solana --version
 - `openlvm ci-gate --json` emits a consolidated CI gate payload combining doctor + arena preflight.
 - `openlvm ci-gate --text --summary` prints a single-line gate verdict for compact CI logs.
 - `openlvm ci-gate --output-file <path>` writes the consolidated gate JSON to a CI artifact file.
+- `openlvm readiness-bundle --artifacts-dir <path>` writes doctor/readiness/preflight/ci-gate plus a combined bundle payload in one run.
 - Workbench `GET /api/workbench/arena/readiness` exposes whether strict real submission is currently possible.
 - `openlvm arena-integrations` lists hub integrations and local readiness.
 - Arena runs are persisted in the operator store (`arena_runs` table).
