@@ -33,6 +33,15 @@ def test_ci_gate_summary_builds_from_artifact_files(tmp_path):
         ),
         encoding="utf-8",
     )
+    (artifacts / "arena-readiness.json").write_text(
+        json.dumps(
+            {
+                "can_real_submission": False,
+                "reasons": ["AgentKit session mode is not active"],
+            }
+        ),
+        encoding="utf-8",
+    )
     (artifacts / "ci-gate.json").write_text(
         json.dumps({"ok": False}),
         encoding="utf-8",
@@ -41,6 +50,8 @@ def test_ci_gate_summary_builds_from_artifact_files(tmp_path):
     summary = module._build_summary(artifacts)
     assert "Overall: **fail**" in summary
     assert "Doctor missing checks: `zig, solana cli`" in summary
+    assert "Arena readiness: **missing**" in summary
+    assert "Readiness reasons: `AgentKit session mode is not active`" in summary
     assert "Preflight missing checks: `endpoint, resolved mode`" in summary
 
 
@@ -65,4 +76,29 @@ def test_ci_gate_summary_falls_back_to_ci_gate_payload(tmp_path):
     summary = module._build_summary(artifacts)
     assert "Overall: **ok**" in summary
     assert "Doctor: **ok**" in summary
+    assert "Arena readiness: **missing**" in summary
+    assert "Arena preflight: **ok**" in summary
+
+
+def test_ci_gate_summary_prefers_readiness_bundle_payload(tmp_path):
+    module = _load_summary_module()
+    artifacts = tmp_path / "artifacts"
+    artifacts.mkdir(parents=True, exist_ok=True)
+    (artifacts / "readiness-bundle.json").write_text(
+        json.dumps(
+            {
+                "ok": True,
+                "doctor": {"ok": True, "missing": []},
+                "arena_readiness": {"can_real_submission": True, "reasons": []},
+                "arena_preflight": {"ok": True, "checks": []},
+                "ci_gate": {"ok": True},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    summary = module._build_summary(artifacts)
+    assert "Overall: **ok**" in summary
+    assert "Doctor: **ok**" in summary
+    assert "Arena readiness: **ok**" in summary
     assert "Arena preflight: **ok**" in summary

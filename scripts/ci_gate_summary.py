@@ -19,23 +19,35 @@ def _load_json(path: Path) -> dict[str, Any] | None:
 
 
 def _build_summary(artifacts_dir: Path) -> str:
-    gate = _load_json(artifacts_dir / "ci-gate.json") or {}
-    doctor = _load_json(artifacts_dir / "doctor.json") or gate.get("doctor") or {}
-    preflight = _load_json(artifacts_dir / "arena-preflight.json") or gate.get("arena_preflight") or {}
+    bundle = _load_json(artifacts_dir / "readiness-bundle.json") or {}
+    gate = _load_json(artifacts_dir / "ci-gate.json") or bundle.get("ci_gate") or {}
+    doctor = _load_json(artifacts_dir / "doctor.json") or bundle.get("doctor") or gate.get("doctor") or {}
+    preflight = (
+        _load_json(artifacts_dir / "arena-preflight.json")
+        or bundle.get("arena_preflight")
+        or gate.get("arena_preflight")
+        or {}
+    )
+    readiness = _load_json(artifacts_dir / "arena-readiness.json") or bundle.get("arena_readiness") or {}
 
-    overall = "ok" if gate.get("ok") else "fail"
+    overall_source = bundle if bundle else gate
+    overall = "ok" if overall_source.get("ok") else "fail"
     doctor_ok = "ok" if doctor.get("ok") else "missing"
     preflight_ok = "ok" if preflight.get("ok") else "missing"
+    readiness_ok = "ok" if readiness.get("can_real_submission") else "missing"
     doctor_missing = doctor.get("missing") or []
     preflight_missing = [c.get("name") for c in (preflight.get("checks") or []) if c.get("status") != "ok"]
+    readiness_reasons = readiness.get("reasons") or []
 
     lines = [
         "## OpenLVM CI Gate Summary",
         "",
         f"- Overall: **{overall}**",
         f"- Doctor: **{doctor_ok}**",
+        f"- Arena readiness: **{readiness_ok}**",
         f"- Arena preflight: **{preflight_ok}**",
         f"- Doctor missing checks: `{', '.join(doctor_missing) if doctor_missing else 'none'}`",
+        f"- Readiness reasons: `{', '.join(readiness_reasons) if readiness_reasons else 'none'}`",
         f"- Preflight missing checks: `{', '.join(preflight_missing) if preflight_missing else 'none'}`",
     ]
     return "\n".join(lines) + "\n"
