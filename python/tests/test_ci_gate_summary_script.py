@@ -106,3 +106,20 @@ def test_ci_gate_summary_prefers_readiness_bundle_payload(tmp_path):
     assert "Arena readiness: **ok**" in summary
     assert "Arena preflight: **ok**" in summary
     assert "Top actions: `export OPENLVM_SOLANA_BRIDGE_MODE=agentkit`" in summary
+
+
+def test_ci_gate_summary_includes_release_decision_when_present(tmp_path):
+    module = _load_summary_module()
+    artifacts = tmp_path / "artifacts"
+    artifacts.mkdir(parents=True, exist_ok=True)
+    (artifacts / "release-readiness.json").write_text(
+        json.dumps({"decision": "hold"}),
+        encoding="utf-8",
+    )
+    (artifacts / "ci-gate.json").write_text(
+        json.dumps({"ok": True, "doctor": {"ok": True, "missing": []}, "arena_preflight": {"ok": True, "checks": []}}),
+        encoding="utf-8",
+    )
+
+    summary = module._build_summary(artifacts)
+    assert "Release decision: **HOLD**" in summary

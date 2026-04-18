@@ -92,6 +92,10 @@ def test_workbench_bridge_uses_isolated_store_paths(tmp_path):
         readiness_plan = _run_bridge(module, "arena_readiness_plan", [actor_id])
         assert isinstance(readiness_plan["action_plan"], list)
         assert isinstance(readiness_plan["readiness_score"], int)
+        release_readiness = _run_bridge(module, "arena_release_readiness", [actor_id, "false", "5000", "true", "80", "70"])
+        assert isinstance(release_readiness["decision"], str)
+        assert isinstance(release_readiness["summary"], dict)
+        assert isinstance(release_readiness["blockers"], list)
         os.environ["OPENLVM_SOLANA_BRIDGE_MODE"] = "agentkit"
         os.environ.pop("OPENLVM_SOLANA_AGENTKIT_API_KEY", None)
         os.environ.pop("OPENLVM_SOLANA_AGENTKIT_ENDPOINT", None)

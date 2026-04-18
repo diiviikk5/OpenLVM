@@ -49,6 +49,8 @@ openlvm readiness-bundle --json
 openlvm readiness-plan
 openlvm readiness-plan --min-readiness-score 85
 openlvm readiness-plan --json
+openlvm release-readiness --min-readiness-score 85 --min-integration-ready-percent 70
+openlvm release-readiness --json --output-file .\artifacts\release-readiness.json
 openlvm arena-integrations
 openlvm mcp-serve
 ```

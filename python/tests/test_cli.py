@@ -749,3 +749,63 @@ def test_readiness_bundle_payload_enforces_min_score(monkeypatch):
     assert payload["readiness_score_threshold"] == 80
     assert payload["readiness_score_ok"] is False
     assert payload["ok"] is False
+
+
+def test_release_readiness_payload_go(monkeypatch):
+    monkeypatch.setattr(
+        "openlvm.cli._readiness_bundle_payload",
+        lambda **kwargs: {
+            "ok": True,
+            "ci_gate": {"ok": True},
+            "arena_readiness": {"can_real_submission": True},
+            "action_plan": [],
+            "readiness_score": 90,
+            "readiness_score_threshold": 80,
+            "readiness_score_ok": True,
+        },
+    )
+    monkeypatch.setattr(
+        "openlvm.cli._integration_hub_payload",
+        lambda: {"integrations": [{"ready": True}, {"ready": True}], "total": 2, "ready": 2, "ready_percent": 100.0},
+    )
+    payload = cli_module._release_readiness_payload(
+        ping=False,
+        timeout_ms=5000,
+        fail_on_ping_warning=True,
+        min_readiness_score=80,
+        min_integration_ready_percent=70,
+    )
+    assert payload["ok"] is True
+    assert payload["decision"] == "go"
+    assert payload["integration_ok"] is True
+    assert payload["blockers"] == []
+
+
+def test_release_readiness_command_json_blocked(monkeypatch):
+    monkeypatch.setattr(
+        "openlvm.cli._release_readiness_payload",
+        lambda **kwargs: {
+            "ok": False,
+            "decision": "blocked",
+            "decision_reason": "Core readiness checks failed; release blocked",
+            "bundle": {"readiness_score": 40, "readiness_score_threshold": 80},
+            "summary": {
+                "ci_gate_ok": False,
+                "real_submission_ok": False,
+                "ready_integrations": 1,
+                "total_integrations": 3,
+                "ready_percent": 33.33,
+            },
+            "integration_threshold_count": 2,
+            "integration_threshold_percent": 70,
+            "blockers": [
+                {"priority": 1, "title": "Set AgentKit API key", "command": "export OPENLVM_SOLANA_AGENTKIT_API_KEY=..."}
+            ],
+            "next_actions": [],
+        },
+    )
+    result = runner.invoke(app, ["release-readiness", "--json"])
+    assert result.exit_code == 1
+    payload = json.loads(result.stdout)
+    assert payload["decision"] == "blocked"
+    assert len(payload["blockers"]) == 1

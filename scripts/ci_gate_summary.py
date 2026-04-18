@@ -20,6 +20,7 @@ def _load_json(path: Path) -> dict[str, Any] | None:
 
 def _build_summary(artifacts_dir: Path) -> str:
     bundle = _load_json(artifacts_dir / "readiness-bundle.json") or {}
+    release = _load_json(artifacts_dir / "release-readiness.json") or {}
     gate = _load_json(artifacts_dir / "ci-gate.json") or bundle.get("ci_gate") or {}
     doctor = _load_json(artifacts_dir / "doctor.json") or bundle.get("doctor") or gate.get("doctor") or {}
     preflight = (
@@ -54,6 +55,7 @@ def _build_summary(artifacts_dir: Path) -> str:
         "## OpenLVM CI Gate Summary",
         "",
         f"- Overall: **{overall}**",
+        f"- Release decision: **{str(release.get('decision', 'n/a')).upper()}**",
         f"- Doctor: **{doctor_ok}**",
         f"- Arena readiness: **{readiness_ok}**",
         f"- Arena preflight: **{preflight_ok}**",

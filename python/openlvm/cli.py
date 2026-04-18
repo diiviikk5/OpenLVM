@@ -288,6 +288,18 @@ def _build_action_plan(doctor: dict, readiness: dict, preflight: dict) -> list[d
     return plan
 
 
+def _integration_hub_payload() -> dict:
+    rows = [integration_readiness(row) for row in load_solana_integrations()]
+    total = len(rows)
+    ready = sum(1 for row in rows if row.get("ready"))
+    return {
+        "integrations": rows,
+        "total": total,
+        "ready": ready,
+        "ready_percent": (round((ready / total) * 100, 2) if total > 0 else 0.0),
+    }
+
+
 def _readiness_bundle_payload(
     *,
     ping: bool,
@@ -328,6 +340,90 @@ def _readiness_bundle_payload(
         "readiness_score": readiness_score,
         "readiness_score_threshold": threshold,
         "readiness_score_ok": readiness_score_ok,
+    }
+
+
+def _release_readiness_payload(
+    *,
+    ping: bool,
+    timeout_ms: int,
+    fail_on_ping_warning: bool,
+    min_readiness_score: int = 80,
+    min_integration_ready_percent: int = 70,
+) -> dict:
+    bundle = _readiness_bundle_payload(
+        ping=ping,
+        timeout_ms=timeout_ms,
+        fail_on_ping_warning=fail_on_ping_warning,
+        min_readiness_score=min_readiness_score,
+    )
+    hub = _integration_hub_payload()
+    total_integrations = int(hub.get("total", 0) or 0)
+    ready_integrations = int(hub.get("ready", 0) or 0)
+    ready_percent = float(hub.get("ready_percent", 0.0) or 0.0)
+    integration_threshold = max(0, min(100, int(min_integration_ready_percent)))
+    required_ready_count = (
+        (total_integrations * integration_threshold + 99) // 100 if total_integrations > 0 else 0
+    )
+    integration_ok = ready_integrations >= required_ready_count
+
+    ci_gate_ok = bool(bundle.get("ci_gate", {}).get("ok"))
+    score_ok = bool(bundle.get("readiness_score_ok"))
+    real_submit_ok = bool(bundle.get("arena_readiness", {}).get("can_real_submission"))
+
+    if ci_gate_ok and score_ok and real_submit_ok and integration_ok:
+        decision = "go"
+    elif ci_gate_ok and score_ok:
+        decision = "hold"
+    else:
+        decision = "blocked"
+
+    blockers: list[dict] = []
+    for action in bundle.get("action_plan", []):
+        if not isinstance(action, dict):
+            continue
+        if int(action.get("priority", 99)) == 1:
+            blockers.append(action)
+    if not integration_ok:
+        blockers.append(
+            {
+                "id": "integration-coverage",
+                "priority": 1,
+                "title": "Increase integration readiness coverage",
+                "command": "python -m openlvm.cli arena-integrations",
+                "detail": (
+                    f"Ready integrations {ready_integrations}/{total_integrations} "
+                    f"below required {required_ready_count}"
+                ),
+            }
+        )
+
+    return {
+        "ok": decision == "go",
+        "decision": decision,
+        "decision_reason": (
+            "All readiness and integration thresholds satisfied"
+            if decision == "go"
+            else "Readiness checks partially satisfied; remediation required"
+            if decision == "hold"
+            else "Core readiness checks failed; release blocked"
+        ),
+        "bundle": bundle,
+        "integration_hub": hub,
+        "integration_threshold_percent": integration_threshold,
+        "integration_threshold_count": required_ready_count,
+        "integration_ok": integration_ok,
+        "summary": {
+            "ci_gate_ok": ci_gate_ok,
+            "score_ok": score_ok,
+            "real_submission_ok": real_submit_ok,
+            "integration_ok": integration_ok,
+            "ready_integrations": ready_integrations,
+            "total_integrations": total_integrations,
+            "ready_percent": ready_percent,
+        },
+        "blockers": blockers,
+        "next_actions": bundle.get("action_plan", [])[:10],
     }
 
 
@@ -669,6 +765,80 @@ def readiness_plan(
             table.add_row("", "-", "No actions required", "none")
         console.print(table)
     if not payload.get("ok"):
+        raise typer.Exit(code=1)
+
+
+@app.command("release-readiness")
+def release_readiness(
+    ping: bool = typer.Option(True, "--ping/--no-ping", help="Include live AgentKit ping in preflight"),
+    timeout_ms: int = typer.Option(5000, "--timeout-ms", help="Timeout for ping request"),
+    fail_on_ping_warning: bool = typer.Option(
+        True,
+        "--fail-on-ping-warning/--allow-ping-warning",
+        help="When ping is enabled, fail release readiness when ping is not successful",
+    ),
+    min_readiness_score: int = typer.Option(80, "--min-readiness-score", help="Minimum readiness score required"),
+    min_integration_ready_percent: int = typer.Option(
+        70,
+        "--min-integration-ready-percent",
+        help="Minimum percent of integration hub entries that must be locally ready",
+    ),
+    json_output: bool = typer.Option(False, "--json", help="Print machine-readable JSON output"),
+    output_file: Optional[Path] = typer.Option(None, "--output-file", help="Write JSON payload to file"),
+):
+    """Evaluate end-to-end release readiness with a GO/HOLD/BLOCKED decision."""
+    payload = _release_readiness_payload(
+        ping=ping,
+        timeout_ms=timeout_ms,
+        fail_on_ping_warning=fail_on_ping_warning,
+        min_readiness_score=min_readiness_score,
+        min_integration_ready_percent=min_integration_ready_percent,
+    )
+    if output_file:
+        _write_json_output_file(output_file, payload)
+    if json_output:
+        console.print_json(json.dumps(payload))
+    else:
+        summary = payload.get("summary", {})
+        table = Table(title="Release Readiness")
+        table.add_column("Field", style="cyan")
+        table.add_column("Value", style="magenta")
+        table.add_row("decision", str(payload.get("decision", "")).upper())
+        table.add_row("reason", str(payload.get("decision_reason", "")))
+        table.add_row(
+            "readiness score",
+            (
+                f"{payload.get('bundle', {}).get('readiness_score', 0)}"
+                f"/{payload.get('bundle', {}).get('readiness_score_threshold', min_readiness_score)}"
+            ),
+        )
+        table.add_row(
+            "integration coverage",
+            (
+                f"{summary.get('ready_integrations', 0)}/{summary.get('total_integrations', 0)} "
+                f"({summary.get('ready_percent', 0)}%) "
+                f"(min {payload.get('integration_threshold_count', 0)} "
+                f"@ {payload.get('integration_threshold_percent', 0)}%)"
+            ),
+        )
+        table.add_row("ci gate", "ok" if summary.get("ci_gate_ok") else "fail")
+        table.add_row("real submission", "ok" if summary.get("real_submission_ok") else "fail")
+        console.print(table)
+
+        blockers = payload.get("blockers", [])
+        if blockers:
+            blockers_table = Table(title="Release Blockers")
+            blockers_table.add_column("Priority", justify="right", style="yellow")
+            blockers_table.add_column("Title", style="red")
+            blockers_table.add_column("Command", style="magenta")
+            for blocker in blockers[:10]:
+                blockers_table.add_row(
+                    str(blocker.get("priority", "")),
+                    str(blocker.get("title", "")),
+                    str(blocker.get("command", "")),
+                )
+            console.print(blockers_table)
+    if payload.get("decision") != "go":
         raise typer.Exit(code=1)
 
 

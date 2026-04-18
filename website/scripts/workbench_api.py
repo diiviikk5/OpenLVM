@@ -740,6 +740,27 @@ def _arena_readiness_plan(args: list[str]) -> dict:
     }
 
 
+def _arena_release_readiness(args: list[str]) -> dict:
+    if len(args) < 1:
+        raise ValueError("actor_id is required")
+    from openlvm.cli import _release_readiness_payload
+
+    actor_id = args[0]
+    _require_authenticated_actor(actor_id)
+    ping = str(args[1]).strip().lower() in {"1", "true", "yes", "on"} if len(args) > 1 else True
+    timeout_ms = int(args[2]) if len(args) > 2 and args[2] else 5000
+    fail_on_ping_warning = str(args[3]).strip().lower() in {"1", "true", "yes", "on"} if len(args) > 3 else True
+    min_readiness_score = int(args[4]) if len(args) > 4 and args[4] else 80
+    min_integration_ready_percent = int(args[5]) if len(args) > 5 and args[5] else 70
+    return _release_readiness_payload(
+        ping=ping,
+        timeout_ms=timeout_ms,
+        fail_on_ping_warning=fail_on_ping_warning,
+        min_readiness_score=min_readiness_score,
+        min_integration_ready_percent=min_integration_ready_percent,
+    )
+
+
 def _arena_intent(args: list[str]) -> dict:
     if len(args) < 2:
         raise ValueError("arena_run_id and actor_id are required")
@@ -873,6 +894,8 @@ def _main() -> int:
             result = _arena_readiness(args)
         elif command == "arena_readiness_plan":
             result = _arena_readiness_plan(args)
+        elif command == "arena_release_readiness":
+            result = _arena_release_readiness(args)
         elif command == "arena_intent":
             result = _arena_intent(args)
         elif command == "arena_submit_intent":
