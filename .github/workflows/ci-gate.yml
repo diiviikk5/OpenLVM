@@ -35,17 +35,11 @@ jobs:
         working-directory: python
         run: python -m pip install -e ".[dev]"
 
-      - name: Run doctor and preflight
-        run: |
-          mkdir -p artifacts
-          python -m openlvm.cli doctor --json --output-file artifacts/doctor.json
-          python -m openlvm.cli arena-preflight --json --output-file artifacts/arena-preflight.json || true
-
-      - name: Run consolidated gate
+      - name: Run readiness bundle
         id: gate
         continue-on-error: true
         run: |
-          python -m openlvm.cli ci-gate --json --output-file artifacts/ci-gate.json
+          python -m openlvm.cli readiness-bundle --json --artifacts-dir artifacts
 
       - name: Upload gate artifacts
         if: always()
