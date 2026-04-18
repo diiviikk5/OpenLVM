@@ -671,8 +671,8 @@ def _arena_run(args: list[str]) -> dict:
             cluster=cluster,
         )
         mode = str(submission.get("metadata", {}).get("adapter_mode", adapter.bridge_mode))
-        if require_real_submission and "stub" in mode:
-            raise ValueError("submission used stub mode while real submission is required")
+        if require_real_submission and not SolanaAgentKitAdapter.is_real_submission_mode(mode):
+            raise ValueError("submission did not use agentkit-session while real submission is required")
         metadata["onchain_submission"] = submission
     record = _operator_store().create_arena_run(
         identity.address,
@@ -700,14 +700,19 @@ def _arena_readiness(args: list[str]) -> dict:
     _require_authenticated_actor(actor_id)
     adapter = SolanaAgentKitAdapter()
     mode = adapter.bridge_mode
-    can_real_submit = "stub" not in mode
+    can_real_submit = mode == "agentkit-session"
     reasons: list[str] = []
     if not can_real_submit:
-        reasons.append("bridge is running in local stub mode")
+        reasons.append("AgentKit session mode is not active")
     if not adapter.node:
         reasons.append("node is not available on PATH")
     if not adapter.bridge_script.exists():
         reasons.append(f"bridge script not found: {adapter.bridge_script}")
+    if mode != "agentkit-session" and os.getenv("OPENLVM_SOLANA_BRIDGE_MODE", "").strip().lower() == "agentkit":
+        if not os.getenv("OPENLVM_SOLANA_AGENTKIT_API_KEY", "").strip():
+            reasons.append("OPENLVM_SOLANA_AGENTKIT_API_KEY is missing")
+        if not os.getenv("OPENLVM_SOLANA_AGENTKIT_ENDPOINT", "").strip():
+            reasons.append("OPENLVM_SOLANA_AGENTKIT_ENDPOINT is missing")
     return {
         "adapter_mode": mode,
         "can_real_submission": can_real_submit,
@@ -770,8 +775,8 @@ def _arena_submit_intent(args: list[str]) -> dict:
         cluster=cluster,
     )
     mode = str(submission.get("metadata", {}).get("adapter_mode", adapter.bridge_mode))
-    if require_real_submission and "stub" in mode:
-        raise ValueError("submission used stub mode while real submission is required")
+    if require_real_submission and not SolanaAgentKitAdapter.is_real_submission_mode(mode):
+        raise ValueError("submission did not use agentkit-session while real submission is required")
     updated = store.update_arena_run_metadata(
         arena_run_id,
         {"onchain_submission": submission},

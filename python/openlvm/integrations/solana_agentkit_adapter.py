@@ -29,15 +29,27 @@ class SolanaAgentKitAdapter:
         self.bridge_script = Path(
             os.getenv("OPENLVM_SOLANA_BRIDGE_SCRIPT", str(repo_root / "solana" / "agentkit_bridge.mjs"))
         )
-        self.force_stub = os.getenv("OPENLVM_SOLANA_BRIDGE_MODE", "").strip().lower() == "stub"
+        self.bridge_mode_env = os.getenv("OPENLVM_SOLANA_BRIDGE_MODE", "").strip().lower()
+        self.force_stub = self.bridge_mode_env == "stub"
+        self._session_id: str | None = None
 
     @property
     def bridge_mode(self) -> str:
         if self.force_stub:
             return "mvp-local-stub"
+        if (
+            self.bridge_mode_env == "agentkit"
+            and os.getenv("OPENLVM_SOLANA_AGENTKIT_API_KEY", "").strip()
+            and os.getenv("OPENLVM_SOLANA_AGENTKIT_ENDPOINT", "").strip()
+        ):
+            return "agentkit-session"
         if self.node and self.bridge_script.exists():
             return "node-bridge"
         return "mvp-local-stub"
+
+    @staticmethod
+    def is_real_submission_mode(mode: str) -> bool:
+        return str(mode or "").strip().lower() == "agentkit-session"
 
     def connect_agent(
         self,
@@ -56,10 +68,13 @@ class SolanaAgentKitAdapter:
                 "private_key": private_key or "",
             },
         )
+        metadata = payload.get("metadata", {})
+        session_id = metadata.get("session_id")
+        self._session_id = str(session_id).strip() if session_id else None
         return SolanaAgentIdentity(
             address=payload["agent_address"],
             wallet_provider=payload["wallet_provider"],
-            metadata=payload.get("metadata", {}),
+            metadata=metadata,
         )
 
     def simulate_x402_transfer(
@@ -75,6 +90,7 @@ class SolanaAgentKitAdapter:
                 "from_agent": from_agent,
                 "to_agent": to_agent,
                 "amount_usdc": float(amount_usdc),
+                "session_id": self._session_id or "",
             },
         )
         return payload
@@ -90,6 +106,7 @@ class SolanaAgentKitAdapter:
             {
                 "intent_commitment": intent_commitment,
                 "cluster": cluster,
+                "session_id": self._session_id or "",
             },
         )
         return payload

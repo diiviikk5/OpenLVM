@@ -49,6 +49,28 @@ def test_doctor_reports_runtime(monkeypatch):
     assert "simulated" in result.stdout
 
 
+def test_doctor_json_outputs_payload(monkeypatch):
+    monkeypatch.setenv("OPENLVM_RUNTIME", "simulated")
+    result = runner.invoke(app, ["doctor", "--json"])
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert "checks" in payload
+    assert isinstance(payload["checks"], list)
+    assert isinstance(payload["missing"], list)
+    runtime_mode = next(check for check in payload["checks"] if check["name"] == "runtime mode")
+    assert runtime_mode["detail"] == "simulated"
+
+
+def test_doctor_output_file_writes_json(monkeypatch, tmp_path):
+    monkeypatch.setenv("OPENLVM_RUNTIME", "simulated")
+    output_file = tmp_path / "doctor.json"
+    result = runner.invoke(app, ["doctor", "--output-file", str(output_file)])
+    assert result.exit_code == 0
+    payload = json.loads(output_file.read_text(encoding="utf-8"))
+    assert "checks" in payload
+    assert "ok" in payload
+
+
 def test_bench_runs_with_simulated_runtime(monkeypatch):
     monkeypatch.setenv("OPENLVM_RUNTIME", "simulated")
     result = runner.invoke(app, ["bench", "--count", "5"])
@@ -322,4 +344,261 @@ def test_arena_run_require_real_submission_fails_on_stub(tmp_path, monkeypatch):
         ],
     )
     assert result.exit_code == 1
-    assert "stub mode" in result.stdout.lower()
+    assert "agentkit session mode" in result.stdout.lower()
+
+
+def test_arena_submit_require_real_submission_fails_on_node_bridge_mode(tmp_path, monkeypatch):
+    store = OperatorStore(tmp_path / "operator_store.db")
+    run = store.create_arena_run(
+        "AgentPubKey111",
+        "scenario-usdc-transfer",
+        0.88,
+        "passed",
+        metadata={
+            "trace_commitment": "sha256:test",
+            "onchain_intent": {
+                "schema": "openlvm.arena.intent.v1",
+                "cluster": "devnet",
+                "intent_commitment": "sha256:intent",
+            },
+        },
+        actor_id="arena#test",
+    )
+    monkeypatch.setattr("openlvm.cli.OperatorStore", lambda: store)
+
+    class FakeAdapter:
+        bridge_mode = "node-bridge"
+
+        @staticmethod
+        def is_real_submission_mode(mode):
+            return mode == "agentkit-session"
+
+        def submit_onchain_intent(self, *, intent_commitment, cluster):
+            return {
+                "submission_status": "simulated_confirmed",
+                "signature": "sig-node-1",
+                "cluster": cluster,
+                "explorer_url": f"https://explorer.solana.com/tx/sig-node-1?cluster={cluster}",
+                "metadata": {"adapter_mode": "node-bridge"},
+            }
+
+    monkeypatch.setattr("openlvm.cli.SolanaAgentKitAdapter", FakeAdapter)
+
+    result = runner.invoke(app, ["arena-submit", run.arena_run_id, "--require-real-submission"])
+    assert result.exit_code == 1
+    assert "agentkit session mode" in result.stdout.lower()
+
+
+def test_arena_preflight_fails_when_agentkit_config_missing(monkeypatch):
+    monkeypatch.delenv("OPENLVM_SOLANA_BRIDGE_MODE", raising=False)
+    monkeypatch.delenv("OPENLVM_SOLANA_AGENTKIT_API_KEY", raising=False)
+    monkeypatch.delenv("OPENLVM_SOLANA_AGENTKIT_ENDPOINT", raising=False)
+
+    result = runner.invoke(app, ["arena-preflight"])
+    assert result.exit_code == 1
+    assert "Arena Preflight" in result.stdout
+
+
+def test_arena_preflight_passes_with_agentkit_env(monkeypatch):
+    monkeypatch.setenv("OPENLVM_SOLANA_BRIDGE_MODE", "agentkit")
+    monkeypatch.setenv("OPENLVM_SOLANA_AGENTKIT_API_KEY", "test-key")
+    monkeypatch.setenv("OPENLVM_SOLANA_AGENTKIT_ENDPOINT", "https://example.com/agentkit")
+
+    result = runner.invoke(app, ["arena-preflight"])
+    assert result.exit_code == 0
+    assert "agentkit-session" in result.stdout
+
+
+def test_arena_preflight_ping_uses_endpoint(monkeypatch):
+    monkeypatch.setenv("OPENLVM_SOLANA_BRIDGE_MODE", "agentkit")
+    monkeypatch.setenv("OPENLVM_SOLANA_AGENTKIT_API_KEY", "test-key")
+    monkeypatch.setenv("OPENLVM_SOLANA_AGENTKIT_ENDPOINT", "https://example.com/agentkit")
+    monkeypatch.setattr("openlvm.cli._agentkit_ping", lambda endpoint, api_key, timeout_ms=5000: (True, "http 200"))
+
+    result = runner.invoke(app, ["arena-preflight", "--ping"])
+    assert result.exit_code == 0
+    assert "live ping" in result.stdout.lower()
+
+
+def test_arena_preflight_json_failure_shape(monkeypatch):
+    monkeypatch.delenv("OPENLVM_SOLANA_BRIDGE_MODE", raising=False)
+    monkeypatch.delenv("OPENLVM_SOLANA_AGENTKIT_API_KEY", raising=False)
+    monkeypatch.delenv("OPENLVM_SOLANA_AGENTKIT_ENDPOINT", raising=False)
+
+    result = runner.invoke(app, ["arena-preflight", "--json"])
+    assert result.exit_code == 1
+    payload = json.loads(result.stdout)
+    assert payload["ok"] is False
+    assert payload["real_submission_ready"] is False
+    assert isinstance(payload["checks"], list)
+    assert any(check["name"] == "resolved mode" for check in payload["checks"])
+
+
+def test_arena_preflight_json_success_shape(monkeypatch):
+    monkeypatch.setenv("OPENLVM_SOLANA_BRIDGE_MODE", "agentkit")
+    monkeypatch.setenv("OPENLVM_SOLANA_AGENTKIT_API_KEY", "test-key")
+    monkeypatch.setenv("OPENLVM_SOLANA_AGENTKIT_ENDPOINT", "https://example.com/agentkit")
+    monkeypatch.setattr("openlvm.cli._agentkit_ping", lambda endpoint, api_key, timeout_ms=5000: (True, "http 200"))
+
+    result = runner.invoke(app, ["arena-preflight", "--ping", "--json"])
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["ok"] is True
+    assert payload["real_submission_ready"] is True
+    assert payload["ping_requested"] is True
+    assert payload["ping_ok"] is True
+    assert payload["ping_warning_enforced"] is True
+    assert any(check["name"] == "live ping" and check["status"] == "ok" for check in payload["checks"])
+
+
+def test_arena_preflight_ping_failure_is_nonzero_by_default(monkeypatch):
+    monkeypatch.setenv("OPENLVM_SOLANA_BRIDGE_MODE", "agentkit")
+    monkeypatch.setenv("OPENLVM_SOLANA_AGENTKIT_API_KEY", "test-key")
+    monkeypatch.setenv("OPENLVM_SOLANA_AGENTKIT_ENDPOINT", "https://example.com/agentkit")
+    monkeypatch.setattr(
+        "openlvm.cli._agentkit_ping",
+        lambda endpoint, api_key, timeout_ms=5000: (False, "network error: refused"),
+    )
+
+    result = runner.invoke(app, ["arena-preflight", "--ping"])
+    assert result.exit_code == 1
+
+
+def test_arena_preflight_ping_failure_can_be_allowed(monkeypatch):
+    monkeypatch.setenv("OPENLVM_SOLANA_BRIDGE_MODE", "agentkit")
+    monkeypatch.setenv("OPENLVM_SOLANA_AGENTKIT_API_KEY", "test-key")
+    monkeypatch.setenv("OPENLVM_SOLANA_AGENTKIT_ENDPOINT", "https://example.com/agentkit")
+    monkeypatch.setattr(
+        "openlvm.cli._agentkit_ping",
+        lambda endpoint, api_key, timeout_ms=5000: (False, "network error: refused"),
+    )
+
+    result = runner.invoke(app, ["arena-preflight", "--ping", "--allow-ping-warning", "--json"])
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["ok"] is True
+    assert payload["ping_ok"] is False
+    assert payload["ping_warning_enforced"] is False
+
+
+def test_arena_preflight_output_file_writes_json(monkeypatch, tmp_path):
+    monkeypatch.setenv("OPENLVM_SOLANA_BRIDGE_MODE", "agentkit")
+    monkeypatch.setenv("OPENLVM_SOLANA_AGENTKIT_API_KEY", "test-key")
+    monkeypatch.setenv("OPENLVM_SOLANA_AGENTKIT_ENDPOINT", "https://example.com/agentkit")
+    output_file = tmp_path / "preflight.json"
+    result = runner.invoke(app, ["arena-preflight", "--output-file", str(output_file)])
+    assert result.exit_code == 0
+    payload = json.loads(output_file.read_text(encoding="utf-8"))
+    assert payload["real_submission_ready"] is True
+    assert isinstance(payload["checks"], list)
+
+
+def test_ci_gate_json_success(monkeypatch):
+    monkeypatch.setattr(
+        "openlvm.cli._doctor_payload",
+        lambda: {"ok": True, "backend": "simulated", "checks": [], "missing": []},
+    )
+    monkeypatch.setattr(
+        "openlvm.cli._arena_preflight_payload",
+        lambda **kwargs: {"ok": True, "checks": [], "ping_requested": kwargs.get("ping", True)},
+    )
+    result = runner.invoke(app, ["ci-gate", "--json"])
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["ok"] is True
+    assert payload["doctor"]["ok"] is True
+    assert payload["arena_preflight"]["ok"] is True
+
+
+def test_ci_gate_json_failure(monkeypatch):
+    monkeypatch.setattr(
+        "openlvm.cli._doctor_payload",
+        lambda: {"ok": True, "backend": "simulated", "checks": [], "missing": []},
+    )
+    monkeypatch.setattr(
+        "openlvm.cli._arena_preflight_payload",
+        lambda **kwargs: {"ok": False, "checks": [], "ping_requested": kwargs.get("ping", True)},
+    )
+    result = runner.invoke(app, ["ci-gate", "--json"])
+    assert result.exit_code == 1
+    payload = json.loads(result.stdout)
+    assert payload["ok"] is False
+    assert payload["doctor"]["ok"] is True
+    assert payload["arena_preflight"]["ok"] is False
+
+
+def test_ci_gate_text_output(monkeypatch):
+    monkeypatch.setattr(
+        "openlvm.cli._doctor_payload",
+        lambda: {"ok": True, "backend": "simulated", "checks": [], "missing": []},
+    )
+    monkeypatch.setattr(
+        "openlvm.cli._arena_preflight_payload",
+        lambda **kwargs: {"ok": True, "checks": [], "ping_requested": kwargs.get("ping", True)},
+    )
+    result = runner.invoke(app, ["ci-gate", "--text"])
+    assert result.exit_code == 0
+    assert "OpenLVM CI Gate" in result.stdout
+
+
+def test_ci_gate_summary_success(monkeypatch):
+    monkeypatch.setattr(
+        "openlvm.cli._doctor_payload",
+        lambda: {"ok": True, "backend": "simulated", "checks": [], "missing": []},
+    )
+    monkeypatch.setattr(
+        "openlvm.cli._arena_preflight_payload",
+        lambda **kwargs: {"ok": True, "checks": [], "ping_requested": True, "ping_ok": True},
+    )
+    result = runner.invoke(app, ["ci-gate", "--text", "--summary"])
+    assert result.exit_code == 0
+    assert "ci-gate: ok" in result.stdout
+    assert "| ping=ok" in result.stdout
+
+
+def test_ci_gate_summary_failure(monkeypatch):
+    monkeypatch.setattr(
+        "openlvm.cli._doctor_payload",
+        lambda: {"ok": False, "backend": "simulated", "checks": [], "missing": ["zig"]},
+    )
+    monkeypatch.setattr(
+        "openlvm.cli._arena_preflight_payload",
+        lambda **kwargs: {"ok": True, "checks": [], "ping_requested": False},
+    )
+    result = runner.invoke(app, ["ci-gate", "--text", "--summary"])
+    assert result.exit_code == 1
+    assert "ci-gate: fail" in result.stdout
+
+
+def test_ci_gate_json_contains_summary(monkeypatch):
+    monkeypatch.setattr(
+        "openlvm.cli._doctor_payload",
+        lambda: {"ok": True, "backend": "simulated", "checks": [], "missing": []},
+    )
+    monkeypatch.setattr(
+        "openlvm.cli._arena_preflight_payload",
+        lambda **kwargs: {"ok": True, "checks": [], "ping_requested": False},
+    )
+    result = runner.invoke(app, ["ci-gate", "--json"])
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert "summary" in payload
+    assert payload["summary"].startswith("ci-gate: ok")
+
+
+def test_ci_gate_output_file_writes_json(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        "openlvm.cli._doctor_payload",
+        lambda: {"ok": True, "backend": "simulated", "checks": [], "missing": []},
+    )
+    monkeypatch.setattr(
+        "openlvm.cli._arena_preflight_payload",
+        lambda **kwargs: {"ok": True, "checks": [], "ping_requested": False},
+    )
+    output_file = tmp_path / "ci-gate.json"
+    result = runner.invoke(app, ["ci-gate", "--json", "--output-file", str(output_file)])
+    assert result.exit_code == 0
+    payload = json.loads(output_file.read_text(encoding="utf-8"))
+    assert payload["ok"] is True
+    assert "doctor" in payload
+    assert "arena_preflight" in payload

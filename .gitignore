@@ -37,6 +37,7 @@ Thumbs.db
 openlvm.db
 openlvm-results/
 .openlvm/
+artifacts/
 
 # Build artifacts
 *.so

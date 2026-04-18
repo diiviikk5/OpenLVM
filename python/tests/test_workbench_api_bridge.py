@@ -86,6 +86,13 @@ def test_workbench_bridge_uses_isolated_store_paths(tmp_path):
         assert isinstance(readiness["adapter_mode"], str)
         assert isinstance(readiness["can_real_submission"], bool)
         assert isinstance(readiness["reasons"], list)
+        os.environ["OPENLVM_SOLANA_BRIDGE_MODE"] = "agentkit"
+        os.environ.pop("OPENLVM_SOLANA_AGENTKIT_API_KEY", None)
+        os.environ.pop("OPENLVM_SOLANA_AGENTKIT_ENDPOINT", None)
+        readiness_missing = _run_bridge(module, "arena_readiness", [actor_id])
+        assert readiness_missing["can_real_submission"] is False
+        assert "OPENLVM_SOLANA_AGENTKIT_API_KEY is missing" in readiness_missing["reasons"]
+        assert "OPENLVM_SOLANA_AGENTKIT_ENDPOINT is missing" in readiness_missing["reasons"]
 
         scenario_json = tmp_path / "arena-scenario.json"
         scenario_json.write_text(

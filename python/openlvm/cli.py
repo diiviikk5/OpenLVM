@@ -4,6 +4,8 @@ import json
 import os
 import shutil
 import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import Optional
 
@@ -23,6 +25,176 @@ from .solana_hub import integration_readiness, load_solana_integrations
 app = typer.Typer(help="OpenLVM - Performance-first Agent-Native VM Runtime")
 console = Console()
 DEFAULT_EXAMPLE_CONFIG = Path(__file__).resolve().parents[2] / "examples" / "swarm.yaml"
+
+
+def _agentkit_ping(endpoint: str, api_key: str, timeout_ms: int = 5000) -> tuple[bool, str]:
+    payload = {
+        "command": "health",
+        "payload": {"source": "openlvm.arena-preflight"},
+    }
+    request = urllib.request.Request(
+        endpoint,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}",
+        },
+        method="POST",
+    )
+    timeout_s = max(timeout_ms, 1) / 1000.0
+    try:
+        with urllib.request.urlopen(request, timeout=timeout_s) as response:
+            status = int(getattr(response, "status", 200) or 200)
+            body = response.read().decode("utf-8", errors="replace").strip()
+            if 200 <= status < 300:
+                return True, f"http {status}" if not body else f"http {status} ({body[:120]})"
+            return False, f"http {status}"
+    except urllib.error.HTTPError as exc:
+        return False, f"http {exc.code}"
+    except urllib.error.URLError as exc:
+        reason = getattr(exc, "reason", exc)
+        return False, f"network error: {reason}"
+    except Exception as exc:  # pragma: no cover - defensive path
+        return False, f"error: {exc}"
+
+
+def _write_json_output_file(output_file: Path, payload: dict) -> None:
+    output_file.parent.mkdir(parents=True, exist_ok=True)
+    output_file.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
+def _doctor_payload() -> dict:
+    runtime = create_runtime()
+    zig_installed = shutil.which("zig") is not None
+    solana_installed = shutil.which("solana") is not None
+    runtime_mode = os.getenv("OPENLVM_RUNTIME") or "auto"
+    shared_lib = OpenLVMRuntime._default_library_path()
+    adapter = SolanaAgentKitAdapter()
+    bridge_mode_env = os.getenv("OPENLVM_SOLANA_BRIDGE_MODE", "").strip() or "auto"
+    agentkit_key = os.getenv("OPENLVM_SOLANA_AGENTKIT_API_KEY", "").strip()
+    agentkit_endpoint = os.getenv("OPENLVM_SOLANA_AGENTKIT_ENDPOINT", "").strip()
+
+    checks = [
+        {"name": "runtime backend", "status": "ok", "detail": runtime.backend},
+        {"name": "runtime mode", "status": "ok", "detail": runtime_mode},
+        {
+            "name": "zig",
+            "status": "ok" if zig_installed else "missing",
+            "detail": "installed" if zig_installed else "not on PATH",
+        },
+        {
+            "name": "solana cli",
+            "status": "ok" if solana_installed else "missing",
+            "detail": "installed" if solana_installed else "run: curl -fsSL https://www.solana.new/setup.sh | bash",
+        },
+        {
+            "name": "shared library",
+            "status": "ok" if shared_lib.exists() else "missing",
+            "detail": str(shared_lib),
+        },
+        {
+            "name": "solana bridge mode",
+            "status": "ok",
+            "detail": f"resolved={adapter.bridge_mode} env={bridge_mode_env}",
+        },
+        {
+            "name": "agentkit api key",
+            "status": "ok" if agentkit_key else "missing",
+            "detail": "configured" if agentkit_key else "not set",
+        },
+        {
+            "name": "agentkit endpoint",
+            "status": "ok" if agentkit_endpoint else "missing",
+            "detail": agentkit_endpoint if agentkit_endpoint else "not set",
+        },
+        {
+            "name": "real submission readiness",
+            "status": "ok" if SolanaAgentKitAdapter.is_real_submission_mode(adapter.bridge_mode) else "missing",
+            "detail": "agentkit-session ready"
+            if SolanaAgentKitAdapter.is_real_submission_mode(adapter.bridge_mode)
+            else "requires OPENLVM_SOLANA_BRIDGE_MODE=agentkit + key + endpoint",
+        },
+        {
+            "name": "promptfoo adapter",
+            "status": "ok",
+            "detail": "available" if PromptfooAdapter().available else "npx not found",
+        },
+        {
+            "name": "deepeval adapter",
+            "status": "ok",
+            "detail": "available" if DeepEvalAdapter().available else "fallback mode",
+        },
+        {
+            "name": "openllmetry adapter",
+            "status": "ok",
+            "detail": "available" if OpenLLMetryAdapter().available else "fallback mode",
+        },
+    ]
+    missing = [row["name"] for row in checks if row["status"] != "ok"]
+    return {
+        "ok": len(missing) == 0,
+        "backend": runtime.backend,
+        "checks": checks,
+        "missing": missing,
+    }
+
+
+def _arena_preflight_payload(*, ping: bool, timeout_ms: int, fail_on_ping_warning: bool) -> dict:
+    adapter = SolanaAgentKitAdapter()
+    bridge_mode_env = os.getenv("OPENLVM_SOLANA_BRIDGE_MODE", "").strip()
+    agentkit_key = os.getenv("OPENLVM_SOLANA_AGENTKIT_API_KEY", "").strip()
+    agentkit_endpoint = os.getenv("OPENLVM_SOLANA_AGENTKIT_ENDPOINT", "").strip()
+    real_ready = SolanaAgentKitAdapter.is_real_submission_mode(adapter.bridge_mode)
+
+    checks = [
+        {
+            "name": "bridge mode env",
+            "status": "ok" if bridge_mode_env == "agentkit" else "missing",
+            "detail": bridge_mode_env or "not set",
+        },
+        {
+            "name": "api key",
+            "status": "ok" if agentkit_key else "missing",
+            "detail": "configured" if agentkit_key else "not set",
+        },
+        {
+            "name": "endpoint",
+            "status": "ok" if agentkit_endpoint else "missing",
+            "detail": agentkit_endpoint or "not set",
+        },
+        {
+            "name": "resolved mode",
+            "status": "ok" if real_ready else "missing",
+            "detail": adapter.bridge_mode,
+        },
+    ]
+
+    ping_ok = True
+    ping_detail = ""
+    if ping:
+        if not agentkit_endpoint or not agentkit_key:
+            ping_ok = False
+            ping_detail = "requires endpoint + api key"
+            checks.append({"name": "live ping", "status": "missing", "detail": ping_detail})
+        else:
+            ok, detail = _agentkit_ping(agentkit_endpoint, agentkit_key, timeout_ms=timeout_ms)
+            ping_ok = ok
+            ping_detail = detail
+            checks.append({"name": "live ping", "status": "ok" if ok else "missing", "detail": detail})
+
+    ping_blocking_failure = ping and not ping_ok and fail_on_ping_warning
+    overall_ok = real_ready and not ping_blocking_failure
+    return {
+        "ok": overall_ok,
+        "real_submission_ready": real_ready,
+        "bridge_mode": adapter.bridge_mode,
+        "bridge_mode_env": bridge_mode_env or "",
+        "ping_requested": ping,
+        "ping_ok": ping_ok if ping else None,
+        "ping_detail": ping_detail if ping else "",
+        "ping_warning_enforced": fail_on_ping_warning,
+        "checks": checks,
+    }
 
 
 def _print_run_diff(diff) -> None:
@@ -90,33 +262,119 @@ def info():
 
 
 @app.command()
-def doctor():
+def doctor(
+    json_output: bool = typer.Option(False, "--json", help="Print machine-readable JSON output"),
+    output_file: Optional[Path] = typer.Option(None, "--output-file", help="Write JSON payload to file"),
+):
     """Inspect local OpenLVM readiness."""
-    runtime = create_runtime()
-    zig_installed = shutil.which("zig") is not None
-    solana_installed = shutil.which("solana") is not None
-    runtime_mode = os.getenv("OPENLVM_RUNTIME") or "auto"
-    shared_lib = OpenLVMRuntime._default_library_path()
+    payload = _doctor_payload()
+    if output_file:
+        _write_json_output_file(output_file, payload)
+    checks = payload["checks"]
+    if json_output:
+        console.print_json(json.dumps(payload))
+        return
 
     table = Table(title="OpenLVM Doctor")
     table.add_column("Check", style="cyan")
     table.add_column("Status", style="green")
     table.add_column("Detail", style="magenta")
-    table.add_row("runtime backend", "ok", runtime.backend)
-    table.add_row("runtime mode", "ok", runtime_mode)
-    table.add_row("zig", "ok" if zig_installed else "missing", "installed" if zig_installed else "not on PATH")
-    table.add_row(
-        "solana cli",
-        "ok" if solana_installed else "missing",
-        "installed"
-        if solana_installed
-        else "run: curl -fsSL https://www.solana.new/setup.sh | bash",
-    )
-    table.add_row("shared library", "ok" if shared_lib.exists() else "missing", str(shared_lib))
-    table.add_row("promptfoo adapter", "ok", "available" if PromptfooAdapter().available else "npx not found")
-    table.add_row("deepeval adapter", "ok", "available" if DeepEvalAdapter().available else "fallback mode")
-    table.add_row("openllmetry adapter", "ok", "available" if OpenLLMetryAdapter().available else "fallback mode")
+    for row in checks:
+        table.add_row(str(row["name"]), str(row["status"]), str(row["detail"]))
     console.print(table)
+
+
+@app.command("arena-preflight")
+def arena_preflight(
+    ping: bool = typer.Option(False, "--ping", help="Perform a live ping to AgentKit endpoint"),
+    timeout_ms: int = typer.Option(5000, "--timeout-ms", help="Timeout for --ping request"),
+    json_output: bool = typer.Option(False, "--json", help="Print machine-readable JSON output"),
+    output_file: Optional[Path] = typer.Option(None, "--output-file", help="Write JSON payload to file"),
+    fail_on_ping_warning: bool = typer.Option(
+        True,
+        "--fail-on-ping-warning/--allow-ping-warning",
+        help="When --ping is used, fail if ping is not successful",
+    ),
+):
+    """Check readiness for strict real Arena submission mode."""
+    payload = _arena_preflight_payload(
+        ping=ping,
+        timeout_ms=timeout_ms,
+        fail_on_ping_warning=fail_on_ping_warning,
+    )
+    if output_file:
+        _write_json_output_file(output_file, payload)
+    checks = payload["checks"]
+    overall_ok = bool(payload["ok"])
+    if json_output:
+        console.print_json(json.dumps(payload))
+    else:
+        table = Table(title="Arena Preflight")
+        table.add_column("Check", style="cyan")
+        table.add_column("Status", style="green")
+        table.add_column("Detail", style="magenta")
+        for row in checks:
+            table.add_row(str(row["name"]), str(row["status"]), str(row["detail"]))
+        console.print(table)
+    if not overall_ok:
+        raise typer.Exit(code=1)
+
+
+@app.command("ci-gate")
+def ci_gate(
+    ping: bool = typer.Option(True, "--ping/--no-ping", help="Include live AgentKit ping in preflight"),
+    timeout_ms: int = typer.Option(5000, "--timeout-ms", help="Timeout for ping request"),
+    fail_on_ping_warning: bool = typer.Option(
+        True,
+        "--fail-on-ping-warning/--allow-ping-warning",
+        help="When ping is enabled, fail gate if ping is not successful",
+    ),
+    json_output: bool = typer.Option(True, "--json/--text", help="Print machine-readable JSON output"),
+    summary: bool = typer.Option(False, "--summary", help="Print compact single-line status output"),
+    output_file: Optional[Path] = typer.Option(None, "--output-file", help="Write JSON payload to file"),
+):
+    """Run consolidated CI readiness gate (doctor + arena preflight)."""
+    doctor_payload = _doctor_payload()
+    preflight_payload = _arena_preflight_payload(
+        ping=ping,
+        timeout_ms=timeout_ms,
+        fail_on_ping_warning=fail_on_ping_warning,
+    )
+    overall_ok = bool(doctor_payload.get("ok")) and bool(preflight_payload.get("ok"))
+    payload = {
+        "ok": overall_ok,
+        "doctor": doctor_payload,
+        "arena_preflight": preflight_payload,
+    }
+    summary_line = (
+        f"ci-gate: {'ok' if overall_ok else 'fail'} "
+        f"| doctor={'ok' if doctor_payload.get('ok') else 'missing'} "
+        f"| arena_preflight={'ok' if preflight_payload.get('ok') else 'missing'}"
+    )
+    if preflight_payload.get("ping_requested"):
+        ping_ok = preflight_payload.get("ping_ok")
+        ping_state = "ok" if ping_ok else "missing"
+        summary_line = f"{summary_line} | ping={ping_state}"
+    payload["summary"] = summary_line
+    if output_file:
+        _write_json_output_file(output_file, payload)
+    if json_output:
+        console.print_json(json.dumps(payload))
+    else:
+        if summary:
+            console.print(summary_line)
+            if not overall_ok:
+                raise typer.Exit(code=1)
+            return
+        table = Table(title="OpenLVM CI Gate")
+        table.add_column("Component", style="cyan")
+        table.add_column("Status", style="green")
+        table.add_row("doctor", "ok" if doctor_payload.get("ok") else "missing")
+        table.add_row("arena_preflight", "ok" if preflight_payload.get("ok") else "missing")
+        table.add_row("overall", "ok" if overall_ok else "missing")
+        console.print(table)
+    if not overall_ok:
+        raise typer.Exit(code=1)
 
 
 @app.command()
@@ -481,7 +739,7 @@ def arena_run(
     require_real_submission: bool = typer.Option(
         False,
         "--require-real-submission",
-        help="Fail if onchain submission uses local stub mode",
+        help="Fail unless onchain submission runs in AgentKit session mode",
     ),
     actor_id: str = typer.Option("arena-cli", "--actor-id", help="Actor id for audit trail"),
 ):
@@ -549,8 +807,10 @@ def arena_run(
             cluster=submission_cluster,
         )
         mode = str(submission.get("metadata", {}).get("adapter_mode", adapter.bridge_mode))
-        if require_real_submission and "stub" in mode:
-            console.print("[bold red]Submission used stub mode while real submission is required.[/bold red]")
+        if require_real_submission and not SolanaAgentKitAdapter.is_real_submission_mode(mode):
+            console.print(
+                "[bold red]Submission did not use AgentKit session mode while real submission is required.[/bold red]"
+            )
             raise typer.Exit(code=1)
         metadata["onchain_submission"] = submission
     record = OperatorStore().create_arena_run(
@@ -631,7 +891,7 @@ def arena_submit(
     require_real_submission: bool = typer.Option(
         False,
         "--require-real-submission",
-        help="Fail if onchain submission uses local stub mode",
+        help="Fail unless onchain submission runs in AgentKit session mode",
     ),
     actor_id: str = typer.Option("arena-cli", "--actor-id", help="Actor id for audit trail"),
 ):
@@ -661,8 +921,10 @@ def arena_submit(
         cluster=cluster_name,
     )
     mode = str(submission.get("metadata", {}).get("adapter_mode", adapter.bridge_mode))
-    if require_real_submission and "stub" in mode:
-        console.print("[bold red]Submission used stub mode while real submission is required.[/bold red]")
+    if require_real_submission and not SolanaAgentKitAdapter.is_real_submission_mode(mode):
+        console.print(
+            "[bold red]Submission did not use AgentKit session mode while real submission is required.[/bold red]"
+        )
         raise typer.Exit(code=1)
     updated = store.update_arena_run_metadata(
         arena_run_id,

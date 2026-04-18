@@ -15,6 +15,8 @@ From `python/` after installing the package:
 ```powershell
 openlvm info
 openlvm doctor
+openlvm doctor --json
+openlvm doctor --output-file .\artifacts\doctor.json
 openlvm bench --count 1000
 openlvm init
 openlvm test ..\examples\swarm.yaml --scenarios 25 --chaos network_delay
@@ -30,9 +32,19 @@ openlvm arena-run --agent <pubkey> --scenario ..\solana\scenarios\usdc-payment-s
 openlvm arena-runs
 openlvm arena-intent <arena-run-id>
 openlvm arena-submit <arena-run-id> --cluster mainnet-beta --require-real-submission
+openlvm arena-preflight
+openlvm arena-preflight --ping --timeout-ms 5000
+openlvm arena-preflight --ping --json
+openlvm arena-preflight --ping --allow-ping-warning --json
+openlvm arena-preflight --output-file .\artifacts\arena-preflight.json
+openlvm ci-gate --json
+openlvm ci-gate --text --summary
+openlvm ci-gate --output-file .\artifacts\ci-gate.json
 openlvm arena-integrations
 openlvm mcp-serve
 ```
+
+GitHub Actions now includes `.github/workflows/ci-gate.yml`, which runs these checks and uploads JSON artifacts.
 
 ## Local Setup
 
