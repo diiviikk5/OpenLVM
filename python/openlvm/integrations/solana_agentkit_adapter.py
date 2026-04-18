@@ -57,6 +57,28 @@ class SolanaAgentKitAdapter:
     def is_real_submission_mode(mode: str) -> bool:
         return str(mode or "").strip().lower() == "agentkit-session"
 
+    def readiness(self) -> dict[str, Any]:
+        mode = self.bridge_mode
+        can_real_submit = self.is_real_submission_mode(mode)
+        reasons: list[str] = []
+        if not can_real_submit:
+            reasons.append("AgentKit session mode is not active")
+        if not self.node:
+            reasons.append("node is not available on PATH")
+        if not self.bridge_script.exists():
+            reasons.append(f"bridge script not found: {self.bridge_script}")
+        if mode != "agentkit-session" and self.bridge_mode_env == "agentkit":
+            if not self.agentkit_api_key:
+                reasons.append("OPENLVM_SOLANA_AGENTKIT_API_KEY is missing")
+            if not self.agentkit_endpoint:
+                reasons.append("OPENLVM_SOLANA_AGENTKIT_ENDPOINT is missing")
+        return {
+            "adapter_mode": mode,
+            "can_real_submission": can_real_submit,
+            "bridge_script": str(self.bridge_script),
+            "reasons": reasons,
+        }
+
     def connect_agent(
         self,
         *,

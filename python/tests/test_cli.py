@@ -389,6 +389,45 @@ def test_arena_submit_require_real_submission_fails_on_node_bridge_mode(tmp_path
     assert "agentkit session mode" in result.stdout.lower()
 
 
+def test_arena_readiness_json_reports_missing_agentkit_env(monkeypatch):
+    monkeypatch.delenv("OPENLVM_SOLANA_BRIDGE_MODE", raising=False)
+    monkeypatch.delenv("OPENLVM_SOLANA_AGENTKIT_API_KEY", raising=False)
+    monkeypatch.delenv("OPENLVM_SOLANA_AGENTKIT_ENDPOINT", raising=False)
+
+    result = runner.invoke(app, ["arena-readiness", "--json"])
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["can_real_submission"] is False
+    assert isinstance(payload["reasons"], list)
+    assert "AgentKit session mode is not active" in payload["reasons"]
+
+
+def test_arena_readiness_json_reports_agentkit_ready(monkeypatch):
+    monkeypatch.setenv("OPENLVM_SOLANA_BRIDGE_MODE", "agentkit")
+    monkeypatch.setenv("OPENLVM_SOLANA_AGENTKIT_API_KEY", "test-key")
+    monkeypatch.setenv("OPENLVM_SOLANA_AGENTKIT_ENDPOINT", "https://example.com/agentkit")
+
+    result = runner.invoke(app, ["arena-readiness", "--json"])
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["can_real_submission"] is True
+    assert payload["adapter_mode"] == "agentkit-session"
+    assert isinstance(payload["bridge_script"], str)
+
+
+def test_arena_readiness_output_file_writes_json(monkeypatch, tmp_path):
+    monkeypatch.setenv("OPENLVM_SOLANA_BRIDGE_MODE", "agentkit")
+    monkeypatch.setenv("OPENLVM_SOLANA_AGENTKIT_API_KEY", "test-key")
+    monkeypatch.setenv("OPENLVM_SOLANA_AGENTKIT_ENDPOINT", "https://example.com/agentkit")
+    output_file = tmp_path / "arena-readiness.json"
+
+    result = runner.invoke(app, ["arena-readiness", "--output-file", str(output_file)])
+    assert result.exit_code == 0
+    payload = json.loads(output_file.read_text(encoding="utf-8"))
+    assert payload["can_real_submission"] is True
+    assert "reasons" in payload
+
+
 def test_arena_preflight_fails_when_agentkit_config_missing(monkeypatch):
     monkeypatch.delenv("OPENLVM_SOLANA_BRIDGE_MODE", raising=False)
     monkeypatch.delenv("OPENLVM_SOLANA_AGENTKIT_API_KEY", raising=False)

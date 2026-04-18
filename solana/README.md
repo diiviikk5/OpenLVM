@@ -24,6 +24,9 @@ solana --version
 - `--require-real-submission` can be added to `arena-run --submit-intent` and `arena-submit` to fail unless submission runs in `agentkit-session` mode.
 - `openlvm arena-intent <arena-run-id>` exports the deterministic onchain intent payload.
 - `openlvm arena-submit <arena-run-id>` submits that intent through the Solana bridge and stores the submission receipt.
+- `openlvm arena-readiness` reports current real-submission readiness and reasons.
+- `openlvm arena-readiness --json` prints machine-readable readiness payloads for scripts.
+- `openlvm arena-readiness --output-file <path>` writes readiness JSON to a CI artifact file.
 - `openlvm arena-preflight` checks whether strict real submission requirements are met.
 - `openlvm arena-preflight --ping` performs a live endpoint ping before strict runs.
 - `openlvm arena-preflight --json` prints machine-readable readiness output for CI gates.

@@ -32,6 +32,9 @@ openlvm arena-run --agent <pubkey> --scenario ..\solana\scenarios\usdc-payment-s
 openlvm arena-runs
 openlvm arena-intent <arena-run-id>
 openlvm arena-submit <arena-run-id> --cluster mainnet-beta --require-real-submission
+openlvm arena-readiness
+openlvm arena-readiness --json
+openlvm arena-readiness --output-file .\artifacts\arena-readiness.json
 openlvm arena-preflight
 openlvm arena-preflight --ping --timeout-ms 5000
 openlvm arena-preflight --ping --json

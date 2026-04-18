@@ -699,26 +699,13 @@ def _arena_readiness(args: list[str]) -> dict:
     actor_id = args[0] if len(args) > 0 else "system"
     _require_authenticated_actor(actor_id)
     adapter = SolanaAgentKitAdapter()
-    mode = adapter.bridge_mode
-    can_real_submit = mode == "agentkit-session"
-    reasons: list[str] = []
-    if not can_real_submit:
-        reasons.append("AgentKit session mode is not active")
-    if not adapter.node:
-        reasons.append("node is not available on PATH")
-    if not adapter.bridge_script.exists():
-        reasons.append(f"bridge script not found: {adapter.bridge_script}")
-    if mode != "agentkit-session" and os.getenv("OPENLVM_SOLANA_BRIDGE_MODE", "").strip().lower() == "agentkit":
-        if not os.getenv("OPENLVM_SOLANA_AGENTKIT_API_KEY", "").strip():
-            reasons.append("OPENLVM_SOLANA_AGENTKIT_API_KEY is missing")
-        if not os.getenv("OPENLVM_SOLANA_AGENTKIT_ENDPOINT", "").strip():
-            reasons.append("OPENLVM_SOLANA_AGENTKIT_ENDPOINT is missing")
+    readiness = adapter.readiness()
     return {
-        "adapter_mode": mode,
-        "can_real_submission": can_real_submit,
+        "adapter_mode": readiness["adapter_mode"],
+        "can_real_submission": readiness["can_real_submission"],
         "cluster": os.getenv("OPENLVM_SOLANA_CLUSTER", "devnet"),
-        "bridge_script": str(adapter.bridge_script),
-        "reasons": reasons,
+        "bridge_script": readiness["bridge_script"],
+        "reasons": readiness["reasons"],
     }
 
 

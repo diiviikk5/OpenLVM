@@ -71,6 +71,19 @@ def test_solana_adapter_real_submission_mode_helper():
     assert SolanaAgentKitAdapter.is_real_submission_mode("mvp-local-stub") is False
 
 
+def test_solana_adapter_readiness_reports_missing_agentkit_vars(monkeypatch):
+    from openlvm.integrations import SolanaAgentKitAdapter
+
+    monkeypatch.setenv("OPENLVM_SOLANA_BRIDGE_MODE", "agentkit")
+    monkeypatch.delenv("OPENLVM_SOLANA_AGENTKIT_API_KEY", raising=False)
+    monkeypatch.delenv("OPENLVM_SOLANA_AGENTKIT_ENDPOINT", raising=False)
+    adapter = SolanaAgentKitAdapter()
+    readiness = adapter.readiness()
+    assert readiness["can_real_submission"] is False
+    assert "OPENLVM_SOLANA_AGENTKIT_API_KEY is missing" in readiness["reasons"]
+    assert "OPENLVM_SOLANA_AGENTKIT_ENDPOINT is missing" in readiness["reasons"]
+
+
 def test_solana_adapter_session_id_is_forwarded(monkeypatch):
     from openlvm.integrations import SolanaAgentKitAdapter
 

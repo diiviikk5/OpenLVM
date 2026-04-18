@@ -197,6 +197,13 @@ def _arena_preflight_payload(*, ping: bool, timeout_ms: int, fail_on_ping_warnin
     }
 
 
+def _arena_readiness_payload() -> dict:
+    adapter = SolanaAgentKitAdapter()
+    readiness = adapter.readiness()
+    readiness["cluster"] = os.getenv("OPENLVM_SOLANA_CLUSTER", "devnet")
+    return readiness
+
+
 def _print_run_diff(diff) -> None:
     console.print(
         f"[bold cyan]Comparison[/bold cyan] {diff.baseline_run_id} -> {diff.candidate_run_id}\n"
@@ -318,6 +325,30 @@ def arena_preflight(
         console.print(table)
     if not overall_ok:
         raise typer.Exit(code=1)
+
+
+@app.command("arena-readiness")
+def arena_readiness(
+    json_output: bool = typer.Option(False, "--json", help="Print machine-readable JSON output"),
+    output_file: Optional[Path] = typer.Option(None, "--output-file", help="Write JSON payload to file"),
+):
+    """Show Solana Arena real-submission readiness details."""
+    payload = _arena_readiness_payload()
+    if output_file:
+        _write_json_output_file(output_file, payload)
+    if json_output:
+        console.print_json(json.dumps(payload))
+        return
+    table = Table(title="Arena Readiness")
+    table.add_column("Field", style="cyan")
+    table.add_column("Value", style="magenta")
+    table.add_row("adapter mode", str(payload.get("adapter_mode", "")))
+    table.add_row("real submission ready", "yes" if payload.get("can_real_submission") else "no")
+    table.add_row("cluster", str(payload.get("cluster", "")))
+    table.add_row("bridge script", str(payload.get("bridge_script", "")))
+    reasons = payload.get("reasons", [])
+    table.add_row("reasons", ", ".join(reasons) if isinstance(reasons, list) and reasons else "none")
+    console.print(table)
 
 
 @app.command("ci-gate")
