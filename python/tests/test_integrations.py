@@ -1,12 +1,10 @@
 import asyncio
 import json
 import pytest
-import shutil
 import socket
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
 
 from openlvm.integrations import DeepEvalAdapter, OpenLLMetryAdapter, PromptfooAdapter
 
@@ -113,9 +111,6 @@ def test_solana_adapter_session_id_is_forwarded(monkeypatch):
 def test_solana_adapter_agentkit_session_via_http_bridge(monkeypatch):
     from openlvm.integrations import SolanaAgentKitAdapter
 
-    if shutil.which("node") is None and shutil.which("node.exe") is None:
-        return
-
     calls: list[dict] = []
 
     class Handler(BaseHTTPRequestHandler):
@@ -180,12 +175,8 @@ def test_solana_adapter_agentkit_session_via_http_bridge(monkeypatch):
         monkeypatch.setenv("OPENLVM_SOLANA_BRIDGE_MODE", "agentkit")
         monkeypatch.setenv("OPENLVM_SOLANA_AGENTKIT_API_KEY", "test-key")
         monkeypatch.setenv("OPENLVM_SOLANA_AGENTKIT_ENDPOINT", endpoint)
-        bridge_path = Path(__file__).resolve().parents[2] / "solana" / "agentkit_bridge.mjs"
-        monkeypatch.setenv("OPENLVM_SOLANA_BRIDGE_SCRIPT", str(bridge_path))
         adapter = SolanaAgentKitAdapter()
         identity = adapter.connect_agent(agent_address="AgentPubKeyHTTP111")
-        if identity.metadata.get("adapter_mode") == "mvp-local-stub":
-            pytest.skip("node bridge did not activate in this environment")
         payment = adapter.simulate_x402_transfer(
             from_agent=identity.address,
             to_agent="arena-pool",

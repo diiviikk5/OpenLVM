@@ -6,6 +6,8 @@ import json
 import os
 import shutil
 import subprocess
+import urllib.error
+import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -30,6 +32,10 @@ class SolanaAgentKitAdapter:
             os.getenv("OPENLVM_SOLANA_BRIDGE_SCRIPT", str(repo_root / "solana" / "agentkit_bridge.mjs"))
         )
         self.bridge_mode_env = os.getenv("OPENLVM_SOLANA_BRIDGE_MODE", "").strip().lower()
+        self.agentkit_api_key = os.getenv("OPENLVM_SOLANA_AGENTKIT_API_KEY", "").strip()
+        self.agentkit_endpoint = os.getenv("OPENLVM_SOLANA_AGENTKIT_ENDPOINT", "").strip()
+        timeout_env = os.getenv("OPENLVM_SOLANA_AGENTKIT_TIMEOUT_MS", "").strip()
+        self.agentkit_timeout_ms = int(timeout_env) if timeout_env.isdigit() else 15000
         self.force_stub = self.bridge_mode_env == "stub"
         self._session_id: str | None = None
 
@@ -39,8 +45,8 @@ class SolanaAgentKitAdapter:
             return "mvp-local-stub"
         if (
             self.bridge_mode_env == "agentkit"
-            and os.getenv("OPENLVM_SOLANA_AGENTKIT_API_KEY", "").strip()
-            and os.getenv("OPENLVM_SOLANA_AGENTKIT_ENDPOINT", "").strip()
+            and self.agentkit_api_key
+            and self.agentkit_endpoint
         ):
             return "agentkit-session"
         if self.node and self.bridge_script.exists():
@@ -112,6 +118,11 @@ class SolanaAgentKitAdapter:
         return payload
 
     def _invoke(self, command: str, payload: dict[str, Any]) -> dict[str, Any]:
+        if not self.force_stub and self.bridge_mode_env == "agentkit" and self.agentkit_api_key and self.agentkit_endpoint:
+            try:
+                return self._invoke_agentkit_http(command, payload)
+            except (ValueError, OSError, urllib.error.URLError):
+                pass
         if not self.force_stub and self.node and self.bridge_script.exists():
             try:
                 proc = subprocess.run(
@@ -127,6 +138,91 @@ class SolanaAgentKitAdapter:
             except OSError:
                 pass
         return self._stub(command, payload)
+
+    def _invoke_agentkit_http(self, command: str, payload: dict[str, Any]) -> dict[str, Any]:
+        request_body = json.dumps({"command": command, "payload": payload}).encode("utf-8")
+        request = urllib.request.Request(
+            self.agentkit_endpoint,
+            data=request_body,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {self.agentkit_api_key}",
+            },
+            method="POST",
+        )
+        timeout_s = max(self.agentkit_timeout_ms, 1) / 1000.0
+        with urllib.request.urlopen(request, timeout=timeout_s) as response:
+            body = response.read().decode("utf-8", errors="replace").strip()
+            raw_payload: dict[str, Any] = {}
+            if body:
+                parsed = json.loads(body)
+                if isinstance(parsed, dict):
+                    raw_payload = parsed
+            result = raw_payload.get("result") if isinstance(raw_payload.get("result"), dict) else raw_payload
+            if not isinstance(result, dict):
+                raise ValueError("agentkit response payload must be an object")
+            return self._normalize_agentkit_response(command, payload, result)
+
+    def _normalize_agentkit_response(
+        self,
+        command: str,
+        request_payload: dict[str, Any],
+        result: dict[str, Any],
+    ) -> dict[str, Any]:
+        metadata = result.get("metadata")
+        metadata_dict = dict(metadata) if isinstance(metadata, dict) else {}
+        if command == "connect_agent":
+            session_id = str(result.get("session_id") or metadata_dict.get("session_id") or "").strip()
+            if not session_id:
+                raise ValueError("agentkit connect response missing session_id")
+            return {
+                "agent_address": str(result.get("agent_address") or request_payload.get("agent_address") or ""),
+                "wallet_provider": str(result.get("wallet_provider") or request_payload.get("wallet_provider") or "embedded"),
+                "metadata": {
+                    **metadata_dict,
+                    "private_key_supplied": bool(request_payload.get("private_key")),
+                    "adapter_mode": "agentkit-session",
+                    "session_id": session_id,
+                    "session_state": str(result.get("session_state") or metadata_dict.get("session_state") or "connected"),
+                    "agentkit_endpoint": self.agentkit_endpoint,
+                },
+            }
+        if command == "simulate_x402_transfer":
+            session_id = str(request_payload.get("session_id") or result.get("session_id") or metadata_dict.get("session_id") or "")
+            return {
+                "x402_status": str(result.get("x402_status") or "settled"),
+                "amount_usdc": float(result.get("amount_usdc", request_payload.get("amount_usdc", 0.0))),
+                "tx_ref": str(result.get("tx_ref") or ""),
+                "metadata": {
+                    **metadata_dict,
+                    "adapter_mode": "agentkit-session",
+                    "session_id": session_id,
+                    "from_agent": request_payload.get("from_agent", ""),
+                    "to_agent": request_payload.get("to_agent", ""),
+                    "agentkit_endpoint": self.agentkit_endpoint,
+                },
+            }
+        if command == "submit_onchain_intent":
+            signature = str(result.get("signature") or "").strip()
+            if not signature:
+                raise ValueError("agentkit submit response missing signature")
+            cluster = str(result.get("cluster") or request_payload.get("cluster") or "devnet")
+            session_id = str(request_payload.get("session_id") or result.get("session_id") or metadata_dict.get("session_id") or "")
+            return {
+                "submission_status": str(result.get("submission_status") or "confirmed"),
+                "signature": signature,
+                "cluster": cluster,
+                "explorer_url": str(
+                    result.get("explorer_url") or f"https://explorer.solana.com/tx/{signature}?cluster={cluster}"
+                ),
+                "metadata": {
+                    **metadata_dict,
+                    "adapter_mode": "agentkit-session",
+                    "session_id": session_id,
+                    "agentkit_endpoint": self.agentkit_endpoint,
+                },
+            }
+        raise ValueError(f"unknown bridge command: {command}")
 
     @staticmethod
     def _stub(command: str, payload: dict[str, Any]) -> dict[str, Any]:
