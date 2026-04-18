@@ -38,6 +38,14 @@ def _build_summary(artifacts_dir: Path) -> str:
     doctor_missing = doctor.get("missing") or []
     preflight_missing = [c.get("name") for c in (preflight.get("checks") or []) if c.get("status") != "ok"]
     readiness_reasons = readiness.get("reasons") or []
+    action_plan = bundle.get("action_plan") or []
+    top_actions: list[str] = []
+    for action in action_plan[:3]:
+        if not isinstance(action, dict):
+            continue
+        command = str(action.get("command", "")).strip()
+        if command:
+            top_actions.append(command)
 
     lines = [
         "## OpenLVM CI Gate Summary",
@@ -49,6 +57,7 @@ def _build_summary(artifacts_dir: Path) -> str:
         f"- Doctor missing checks: `{', '.join(doctor_missing) if doctor_missing else 'none'}`",
         f"- Readiness reasons: `{', '.join(readiness_reasons) if readiness_reasons else 'none'}`",
         f"- Preflight missing checks: `{', '.join(preflight_missing) if preflight_missing else 'none'}`",
+        f"- Top actions: `{', '.join(top_actions) if top_actions else 'none'}`",
     ]
     return "\n".join(lines) + "\n"
 

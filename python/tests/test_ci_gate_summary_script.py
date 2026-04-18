@@ -92,6 +92,9 @@ def test_ci_gate_summary_prefers_readiness_bundle_payload(tmp_path):
                 "arena_readiness": {"can_real_submission": True, "reasons": []},
                 "arena_preflight": {"ok": True, "checks": []},
                 "ci_gate": {"ok": True},
+                "action_plan": [
+                    {"priority": 1, "title": "Set bridge mode", "command": "export OPENLVM_SOLANA_BRIDGE_MODE=agentkit"}
+                ],
             }
         ),
         encoding="utf-8",
@@ -102,3 +105,4 @@ def test_ci_gate_summary_prefers_readiness_bundle_payload(tmp_path):
     assert "Doctor: **ok**" in summary
     assert "Arena readiness: **ok**" in summary
     assert "Arena preflight: **ok**" in summary
+    assert "Top actions: `export OPENLVM_SOLANA_BRIDGE_MODE=agentkit`" in summary

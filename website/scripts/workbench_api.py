@@ -706,6 +706,37 @@ def _arena_readiness(args: list[str]) -> dict:
         "cluster": os.getenv("OPENLVM_SOLANA_CLUSTER", "devnet"),
         "bridge_script": readiness["bridge_script"],
         "reasons": readiness["reasons"],
+        "issues": readiness.get("issues", []),
+        "next_actions": readiness.get("next_actions", []),
+        "readiness_score": readiness.get("readiness_score", 0),
+    }
+
+
+def _arena_readiness_plan(args: list[str]) -> dict:
+    actor_id = args[0] if len(args) > 0 else "system"
+    _require_authenticated_actor(actor_id)
+    readiness = _arena_readiness([actor_id])
+    actions = []
+    for issue in readiness.get("issues", []):
+        if not isinstance(issue, dict):
+            continue
+        severity = str(issue.get("severity", "warning")).strip().lower()
+        priority = 1 if severity == "critical" else 2 if severity == "warning" else 3
+        command = str(issue.get("command", "")).strip()
+        if not command:
+            continue
+        actions.append(
+            {
+                "priority": priority,
+                "title": str(issue.get("message", "")).strip(),
+                "command": command,
+            }
+        )
+    actions.sort(key=lambda item: (item["priority"], item["title"]))
+    return {
+        "ok": readiness.get("can_real_submission", False),
+        "readiness_score": readiness.get("readiness_score", 0),
+        "action_plan": actions,
     }
 
 
@@ -840,6 +871,8 @@ def _main() -> int:
             result = _arena_runs(args)
         elif command == "arena_readiness":
             result = _arena_readiness(args)
+        elif command == "arena_readiness_plan":
+            result = _arena_readiness_plan(args)
         elif command == "arena_intent":
             result = _arena_intent(args)
         elif command == "arena_submit_intent":

@@ -60,23 +60,91 @@ class SolanaAgentKitAdapter:
     def readiness(self) -> dict[str, Any]:
         mode = self.bridge_mode
         can_real_submit = self.is_real_submission_mode(mode)
-        reasons: list[str] = []
-        if not can_real_submit:
-            reasons.append("AgentKit session mode is not active")
-        if not self.node:
-            reasons.append("node is not available on PATH")
-        if not self.bridge_script.exists():
-            reasons.append(f"bridge script not found: {self.bridge_script}")
+        issues: list[dict[str, str]] = []
+        if self.bridge_mode_env != "agentkit":
+            issues.append(
+                {
+                    "id": "bridge-mode-not-agentkit",
+                    "severity": "critical",
+                    "message": "OPENLVM_SOLANA_BRIDGE_MODE is not set to agentkit",
+                    "fix": "Set OPENLVM_SOLANA_BRIDGE_MODE=agentkit for strict real submission mode",
+                    "command": "export OPENLVM_SOLANA_BRIDGE_MODE=agentkit",
+                }
+            )
         if mode != "agentkit-session" and self.bridge_mode_env == "agentkit":
             if not self.agentkit_api_key:
-                reasons.append("OPENLVM_SOLANA_AGENTKIT_API_KEY is missing")
+                issues.append(
+                    {
+                        "id": "agentkit-api-key-missing",
+                        "severity": "critical",
+                        "message": "OPENLVM_SOLANA_AGENTKIT_API_KEY is missing",
+                        "fix": "Configure your AgentKit API key in environment variables",
+                        "command": "export OPENLVM_SOLANA_AGENTKIT_API_KEY=...",
+                    }
+                )
             if not self.agentkit_endpoint:
-                reasons.append("OPENLVM_SOLANA_AGENTKIT_ENDPOINT is missing")
+                issues.append(
+                    {
+                        "id": "agentkit-endpoint-missing",
+                        "severity": "critical",
+                        "message": "OPENLVM_SOLANA_AGENTKIT_ENDPOINT is missing",
+                        "fix": "Configure your AgentKit endpoint in environment variables",
+                        "command": "export OPENLVM_SOLANA_AGENTKIT_ENDPOINT=https://...",
+                    }
+                )
+        if not self.bridge_script.exists():
+            issues.append(
+                {
+                    "id": "bridge-script-missing",
+                    "severity": "warning",
+                    "message": f"bridge script not found: {self.bridge_script}",
+                    "fix": "Restore solana/agentkit_bridge.mjs or set OPENLVM_SOLANA_BRIDGE_SCRIPT",
+                    "command": "export OPENLVM_SOLANA_BRIDGE_SCRIPT=/absolute/path/to/agentkit_bridge.mjs",
+                }
+            )
+        if not self.node and mode != "agentkit-session":
+            issues.append(
+                {
+                    "id": "node-not-available",
+                    "severity": "warning",
+                    "message": "node is not available on PATH",
+                    "fix": "Install Node.js if you want node-bridge mode fallback",
+                    "command": "node --version",
+                }
+            )
+        if not can_real_submit and not any(issue["id"] == "bridge-mode-not-agentkit" for issue in issues):
+            issues.append(
+                {
+                    "id": "agentkit-session-inactive",
+                    "severity": "warning",
+                    "message": "AgentKit session mode is not active",
+                    "fix": "Run arena-readiness and arena-preflight to identify blocking configuration",
+                    "command": "python -m openlvm.cli arena-preflight --json",
+                }
+            )
+        reasons = [issue["message"] for issue in issues]
+        readiness_score = 100
+        for issue in issues:
+            if issue["severity"] == "critical":
+                readiness_score -= 40
+            elif issue["severity"] == "warning":
+                readiness_score -= 15
+            else:
+                readiness_score -= 5
+        readiness_score = max(0, readiness_score)
+        next_actions: list[str] = []
+        for issue in issues:
+            command = issue.get("command", "").strip()
+            if command and command not in next_actions:
+                next_actions.append(command)
         return {
             "adapter_mode": mode,
             "can_real_submission": can_real_submit,
             "bridge_script": str(self.bridge_script),
             "reasons": reasons,
+            "issues": issues,
+            "next_actions": next_actions,
+            "readiness_score": readiness_score,
         }
 
     def connect_agent(

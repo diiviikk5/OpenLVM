@@ -399,7 +399,7 @@ def test_arena_readiness_json_reports_missing_agentkit_env(monkeypatch):
     payload = json.loads(result.stdout)
     assert payload["can_real_submission"] is False
     assert isinstance(payload["reasons"], list)
-    assert "AgentKit session mode is not active" in payload["reasons"]
+    assert "OPENLVM_SOLANA_BRIDGE_MODE is not set to agentkit" in payload["reasons"]
 
 
 def test_arena_readiness_json_reports_agentkit_ready(monkeypatch):
@@ -652,6 +652,7 @@ def test_readiness_bundle_writes_expected_artifacts(monkeypatch, tmp_path):
             "arena_readiness": {"can_real_submission": True, "adapter_mode": "agentkit-session", "reasons": []},
             "arena_preflight": {"ok": True, "checks": []},
             "ci_gate": {"ok": True, "summary": "ci-gate: ok"},
+            "action_plan": [{"priority": 1, "title": "Set endpoint", "command": "export OPENLVM_SOLANA_AGENTKIT_ENDPOINT=https://..."}],
         },
     )
     out_dir = tmp_path / "bundle"
@@ -673,6 +674,7 @@ def test_readiness_bundle_fails_when_not_ready(monkeypatch, tmp_path):
             "arena_readiness": {"can_real_submission": False, "adapter_mode": "mvp-local-stub", "reasons": ["missing"]},
             "arena_preflight": {"ok": False, "checks": []},
             "ci_gate": {"ok": False, "summary": "ci-gate: fail"},
+            "action_plan": [{"priority": 1, "title": "Enable mode", "command": "export OPENLVM_SOLANA_BRIDGE_MODE=agentkit"}],
         },
     )
     out_dir = tmp_path / "bundle"
@@ -680,3 +682,25 @@ def test_readiness_bundle_fails_when_not_ready(monkeypatch, tmp_path):
     assert result.exit_code == 1
     payload = json.loads(result.stdout)
     assert payload["ok"] is False
+
+
+def test_readiness_plan_command_outputs_json(monkeypatch):
+    monkeypatch.setattr(
+        "openlvm.cli._readiness_bundle_payload",
+        lambda **kwargs: {
+            "ok": False,
+            "doctor": {"ok": True, "checks": [], "missing": []},
+            "arena_readiness": {"can_real_submission": False, "adapter_mode": "mvp-local-stub", "reasons": ["missing"]},
+            "arena_preflight": {"ok": False, "checks": []},
+            "ci_gate": {"ok": False, "summary": "ci-gate: fail"},
+            "action_plan": [
+                {"id": "a1", "priority": 1, "title": "Set bridge mode", "command": "export OPENLVM_SOLANA_BRIDGE_MODE=agentkit"}
+            ],
+        },
+    )
+    result = runner.invoke(app, ["readiness-plan", "--json"])
+    assert result.exit_code == 1
+    payload = json.loads(result.stdout)
+    assert payload["ok"] is False
+    assert isinstance(payload["action_plan"], list)
+    assert payload["action_plan"][0]["priority"] == 1

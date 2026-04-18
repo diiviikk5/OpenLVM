@@ -204,6 +204,90 @@ def _arena_readiness_payload() -> dict:
     return readiness
 
 
+def _build_action_plan(doctor: dict, readiness: dict, preflight: dict) -> list[dict]:
+    plan: list[dict] = []
+
+    def add_action(action_id: str, priority: int, title: str, command: str) -> None:
+        if not command.strip():
+            return
+        if any(item["id"] == action_id for item in plan):
+            return
+        plan.append(
+            {
+                "id": action_id,
+                "priority": int(priority),
+                "title": title,
+                "command": command.strip(),
+            }
+        )
+
+    doctor_actions = {
+        "zig": ("install-zig", 1, "Install Zig toolchain", "zig version"),
+        "solana cli": ("install-solana-cli", 1, "Install Solana CLI", "solana --version"),
+        "agentkit api key": (
+            "set-agentkit-api-key",
+            1,
+            "Set AgentKit API key",
+            "export OPENLVM_SOLANA_AGENTKIT_API_KEY=...",
+        ),
+        "agentkit endpoint": (
+            "set-agentkit-endpoint",
+            1,
+            "Set AgentKit endpoint",
+            "export OPENLVM_SOLANA_AGENTKIT_ENDPOINT=https://...",
+        ),
+        "real submission readiness": (
+            "enable-agentkit-mode",
+            1,
+            "Enable AgentKit session mode",
+            "export OPENLVM_SOLANA_BRIDGE_MODE=agentkit",
+        ),
+    }
+    for missing in doctor.get("missing", []) or []:
+        key = str(missing).strip().lower()
+        if key in doctor_actions:
+            action_id, priority, title, command = doctor_actions[key]
+            add_action(action_id, priority, title, command)
+
+    for issue in readiness.get("issues", []) or []:
+        if not isinstance(issue, dict):
+            continue
+        issue_id = str(issue.get("id", "")).strip()
+        command = str(issue.get("command", "")).strip()
+        message = str(issue.get("message", "")).strip() or issue_id
+        severity = str(issue.get("severity", "warning")).strip().lower()
+        priority = 1 if severity == "critical" else 2 if severity == "warning" else 3
+        add_action(f"readiness:{issue_id}" if issue_id else f"readiness:{message}", priority, message, command)
+
+    for check in preflight.get("checks", []) or []:
+        if not isinstance(check, dict):
+            continue
+        if str(check.get("status", "ok")).strip().lower() == "ok":
+            continue
+        name = str(check.get("name", "")).strip().lower()
+        if name == "bridge mode env":
+            add_action("preflight:bridge-mode-env", 1, "Set bridge mode to agentkit", "export OPENLVM_SOLANA_BRIDGE_MODE=agentkit")
+        elif name == "api key":
+            add_action("preflight:api-key", 1, "Configure AgentKit API key", "export OPENLVM_SOLANA_AGENTKIT_API_KEY=...")
+        elif name == "endpoint":
+            add_action(
+                "preflight:endpoint",
+                1,
+                "Configure AgentKit endpoint",
+                "export OPENLVM_SOLANA_AGENTKIT_ENDPOINT=https://...",
+            )
+        elif name == "live ping":
+            add_action(
+                "preflight:live-ping",
+                2,
+                "Validate AgentKit endpoint health",
+                "python -m openlvm.cli arena-preflight --ping --json",
+            )
+
+    plan.sort(key=lambda item: (int(item.get("priority", 99)), str(item.get("title", ""))))
+    return plan
+
+
 def _readiness_bundle_payload(*, ping: bool, timeout_ms: int, fail_on_ping_warning: bool) -> dict:
     doctor_payload = _doctor_payload()
     arena_readiness_payload = _arena_readiness_payload()
@@ -223,6 +307,7 @@ def _readiness_bundle_payload(*, ping: bool, timeout_ms: int, fail_on_ping_warni
             f"| arena_preflight={'ok' if arena_preflight_payload.get('ok') else 'missing'}"
         ),
     }
+    action_plan = _build_action_plan(doctor_payload, arena_readiness_payload, arena_preflight_payload)
     bundle_ok = bool(arena_readiness_payload.get("can_real_submission")) and ci_gate_ok
     return {
         "ok": bundle_ok,
@@ -230,6 +315,7 @@ def _readiness_bundle_payload(*, ping: bool, timeout_ms: int, fail_on_ping_warni
         "arena_readiness": arena_readiness_payload,
         "arena_preflight": arena_preflight_payload,
         "ci_gate": ci_gate_payload,
+        "action_plan": action_plan,
     }
 
 
@@ -375,8 +461,11 @@ def arena_readiness(
     table.add_row("real submission ready", "yes" if payload.get("can_real_submission") else "no")
     table.add_row("cluster", str(payload.get("cluster", "")))
     table.add_row("bridge script", str(payload.get("bridge_script", "")))
+    table.add_row("readiness score", str(payload.get("readiness_score", "")))
     reasons = payload.get("reasons", [])
     table.add_row("reasons", ", ".join(reasons) if isinstance(reasons, list) and reasons else "none")
+    next_actions = payload.get("next_actions", [])
+    table.add_row("next actions", ", ".join(next_actions) if isinstance(next_actions, list) and next_actions else "none")
     console.print(table)
 
 
@@ -481,6 +570,63 @@ def readiness_bundle(
         )
         table.add_row("ci_gate", "ok" if payload["ci_gate"].get("ok") else "missing", str(artifacts_dir / "ci-gate.json"))
         table.add_row("bundle", "ok" if payload.get("ok") else "missing", str(artifacts_dir / "readiness-bundle.json"))
+        console.print(table)
+        action_plan = payload.get("action_plan", [])
+        if action_plan:
+            actions_table = Table(title="Readiness Action Plan")
+            actions_table.add_column("Priority", justify="right", style="yellow")
+            actions_table.add_column("Action", style="cyan")
+            actions_table.add_column("Command", style="magenta")
+            for action in action_plan[:10]:
+                actions_table.add_row(
+                    str(action.get("priority", "")),
+                    str(action.get("title", "")),
+                    str(action.get("command", "")),
+                )
+            console.print(actions_table)
+    if not payload.get("ok"):
+        raise typer.Exit(code=1)
+
+
+@app.command("readiness-plan")
+def readiness_plan(
+    ping: bool = typer.Option(True, "--ping/--no-ping", help="Include live AgentKit ping in preflight"),
+    timeout_ms: int = typer.Option(5000, "--timeout-ms", help="Timeout for ping request"),
+    fail_on_ping_warning: bool = typer.Option(
+        True,
+        "--fail-on-ping-warning/--allow-ping-warning",
+        help="When ping is enabled, fail readiness plan if ping is not successful",
+    ),
+    json_output: bool = typer.Option(False, "--json", help="Print machine-readable JSON output"),
+    output_file: Optional[Path] = typer.Option(None, "--output-file", help="Write JSON payload to file"),
+):
+    """Show prioritized commands to move the project toward full readiness."""
+    bundle = _readiness_bundle_payload(
+        ping=ping,
+        timeout_ms=timeout_ms,
+        fail_on_ping_warning=fail_on_ping_warning,
+    )
+    payload = {
+        "ok": bundle.get("ok", False),
+        "action_plan": bundle.get("action_plan", []),
+    }
+    if output_file:
+        _write_json_output_file(output_file, payload)
+    if json_output:
+        console.print_json(json.dumps(payload))
+    else:
+        table = Table(title="Readiness Plan")
+        table.add_column("Priority", justify="right", style="yellow")
+        table.add_column("Action", style="cyan")
+        table.add_column("Command", style="magenta")
+        for action in payload["action_plan"]:
+            table.add_row(
+                str(action.get("priority", "")),
+                str(action.get("title", "")),
+                str(action.get("command", "")),
+            )
+        if not payload["action_plan"]:
+            table.add_row("-", "No actions required", "none")
         console.print(table)
     if not payload.get("ok"):
         raise typer.Exit(code=1)

@@ -82,6 +82,9 @@ def test_solana_adapter_readiness_reports_missing_agentkit_vars(monkeypatch):
     assert readiness["can_real_submission"] is False
     assert "OPENLVM_SOLANA_AGENTKIT_API_KEY is missing" in readiness["reasons"]
     assert "OPENLVM_SOLANA_AGENTKIT_ENDPOINT is missing" in readiness["reasons"]
+    assert isinstance(readiness.get("issues"), list)
+    assert isinstance(readiness.get("next_actions"), list)
+    assert isinstance(readiness.get("readiness_score"), int)
 
 
 def test_solana_adapter_session_id_is_forwarded(monkeypatch):
