@@ -350,8 +350,9 @@ def _release_readiness_payload(
     fail_on_ping_warning: bool,
     min_readiness_score: int = 80,
     min_integration_ready_percent: int = 70,
+    bundle: Optional[dict] = None,
 ) -> dict:
-    bundle = _readiness_bundle_payload(
+    bundle_payload = bundle or _readiness_bundle_payload(
         ping=ping,
         timeout_ms=timeout_ms,
         fail_on_ping_warning=fail_on_ping_warning,
@@ -367,9 +368,9 @@ def _release_readiness_payload(
     )
     integration_ok = ready_integrations >= required_ready_count
 
-    ci_gate_ok = bool(bundle.get("ci_gate", {}).get("ok"))
-    score_ok = bool(bundle.get("readiness_score_ok"))
-    real_submit_ok = bool(bundle.get("arena_readiness", {}).get("can_real_submission"))
+    ci_gate_ok = bool(bundle_payload.get("ci_gate", {}).get("ok"))
+    score_ok = bool(bundle_payload.get("readiness_score_ok"))
+    real_submit_ok = bool(bundle_payload.get("arena_readiness", {}).get("can_real_submission"))
 
     if ci_gate_ok and score_ok and real_submit_ok and integration_ok:
         decision = "go"
@@ -379,7 +380,7 @@ def _release_readiness_payload(
         decision = "blocked"
 
     blockers: list[dict] = []
-    for action in bundle.get("action_plan", []):
+    for action in bundle_payload.get("action_plan", []):
         if not isinstance(action, dict):
             continue
         if int(action.get("priority", 99)) == 1:
@@ -398,6 +399,15 @@ def _release_readiness_payload(
             }
         )
 
+    bundle_summary = {
+        "ok": bool(bundle_payload.get("ok")),
+        "readiness_score": int(bundle_payload.get("readiness_score", 0) or 0),
+        "readiness_score_threshold": int(bundle_payload.get("readiness_score_threshold", min_readiness_score) or 0),
+        "readiness_score_ok": bool(bundle_payload.get("readiness_score_ok")),
+        "ci_gate_ok": ci_gate_ok,
+        "real_submission_ok": real_submit_ok,
+    }
+
     return {
         "ok": decision == "go",
         "decision": decision,
@@ -408,7 +418,7 @@ def _release_readiness_payload(
             if decision == "hold"
             else "Core readiness checks failed; release blocked"
         ),
-        "bundle": bundle,
+        "bundle": bundle_summary,
         "integration_hub": hub,
         "integration_threshold_percent": integration_threshold,
         "integration_threshold_count": required_ready_count,
@@ -423,7 +433,7 @@ def _release_readiness_payload(
             "ready_percent": ready_percent,
         },
         "blockers": blockers,
-        "next_actions": bundle.get("action_plan", [])[:10],
+        "next_actions": bundle_payload.get("action_plan", [])[:10],
     }
 
 
@@ -645,6 +655,21 @@ def readiness_bundle(
         help="When ping is enabled, fail bundle if ping is not successful",
     ),
     min_readiness_score: int = typer.Option(80, "--min-readiness-score", help="Minimum readiness score required"),
+    include_release_readiness: bool = typer.Option(
+        True,
+        "--include-release-readiness/--no-include-release-readiness",
+        help="Include release-readiness decision in the bundle artifacts",
+    ),
+    min_integration_ready_percent: int = typer.Option(
+        70,
+        "--min-integration-ready-percent",
+        help="Minimum percent of integration hub entries that must be locally ready",
+    ),
+    release_enforcement: str = typer.Option(
+        "strict",
+        "--release-enforcement",
+        help="Release enforcement when release readiness is included: strict|allow-hold|report-only",
+    ),
     json_output: bool = typer.Option(False, "--json", help="Print machine-readable JSON output"),
 ):
     """Run all readiness checks and write bundled JSON artifacts for local/CI use."""
@@ -654,11 +679,41 @@ def readiness_bundle(
         fail_on_ping_warning=fail_on_ping_warning,
         min_readiness_score=min_readiness_score,
     )
+    mode = str(release_enforcement).strip().lower() or "strict"
+    if mode not in {"strict", "allow-hold", "report-only"}:
+        raise typer.BadParameter("--release-enforcement must be one of: strict, allow-hold, report-only")
+    release_payload: dict | None = None
+    release_enforcement_ok = True
+    if include_release_readiness:
+        release_payload = _release_readiness_payload(
+            ping=ping,
+            timeout_ms=timeout_ms,
+            fail_on_ping_warning=fail_on_ping_warning,
+            min_readiness_score=min_readiness_score,
+            min_integration_ready_percent=min_integration_ready_percent,
+            bundle=payload,
+        )
+        decision = str(release_payload.get("decision", "")).strip().lower()
+        if mode == "strict":
+            release_enforcement_ok = decision == "go"
+        elif mode == "allow-hold":
+            release_enforcement_ok = decision in {"go", "hold"}
+        else:
+            release_enforcement_ok = True
+        release_payload["enforcement"] = mode
+        release_payload["enforcement_ok"] = release_enforcement_ok
+        payload["release_readiness"] = release_payload
+        payload["release_enforcement"] = mode
+        payload["release_enforcement_ok"] = release_enforcement_ok
+        payload["ok"] = bool(payload.get("ok")) and release_enforcement_ok
+
     artifacts_dir.mkdir(parents=True, exist_ok=True)
     _write_json_output_file(artifacts_dir / "doctor.json", payload["doctor"])
     _write_json_output_file(artifacts_dir / "arena-readiness.json", payload["arena_readiness"])
     _write_json_output_file(artifacts_dir / "arena-preflight.json", payload["arena_preflight"])
     _write_json_output_file(artifacts_dir / "ci-gate.json", payload["ci_gate"])
+    if release_payload:
+        _write_json_output_file(artifacts_dir / "release-readiness.json", release_payload)
     _write_json_output_file(artifacts_dir / "readiness-bundle.json", payload)
     if json_output:
         console.print_json(json.dumps(payload))
@@ -679,6 +734,15 @@ def readiness_bundle(
             str(artifacts_dir / "arena-preflight.json"),
         )
         table.add_row("ci_gate", "ok" if payload["ci_gate"].get("ok") else "missing", str(artifacts_dir / "ci-gate.json"))
+        if release_payload:
+            table.add_row(
+                "release_readiness",
+                (
+                    f"{str(release_payload.get('decision', '')).upper()} "
+                    f"({'pass' if release_enforcement_ok else 'fail'})"
+                ),
+                str(artifacts_dir / "release-readiness.json"),
+            )
         table.add_row("bundle", "ok" if payload.get("ok") else "missing", str(artifacts_dir / "readiness-bundle.json"))
         table.add_row(
             "readiness_score",

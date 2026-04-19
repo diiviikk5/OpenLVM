@@ -20,7 +20,7 @@ def _load_json(path: Path) -> dict[str, Any] | None:
 
 def _build_summary(artifacts_dir: Path) -> str:
     bundle = _load_json(artifacts_dir / "readiness-bundle.json") or {}
-    release = _load_json(artifacts_dir / "release-readiness.json") or {}
+    release = _load_json(artifacts_dir / "release-readiness.json") or bundle.get("release_readiness") or {}
     gate = _load_json(artifacts_dir / "ci-gate.json") or bundle.get("ci_gate") or {}
     doctor = _load_json(artifacts_dir / "doctor.json") or bundle.get("doctor") or gate.get("doctor") or {}
     preflight = (

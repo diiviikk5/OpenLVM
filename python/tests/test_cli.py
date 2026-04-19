@@ -660,7 +660,10 @@ def test_readiness_bundle_writes_expected_artifacts(monkeypatch, tmp_path):
         },
     )
     out_dir = tmp_path / "bundle"
-    result = runner.invoke(app, ["readiness-bundle", "--artifacts-dir", str(out_dir)])
+    result = runner.invoke(
+        app,
+        ["readiness-bundle", "--artifacts-dir", str(out_dir), "--no-include-release-readiness"],
+    )
     assert result.exit_code == 0
     assert (out_dir / "doctor.json").exists()
     assert (out_dir / "arena-readiness.json").exists()
@@ -685,10 +688,51 @@ def test_readiness_bundle_fails_when_not_ready(monkeypatch, tmp_path):
         },
     )
     out_dir = tmp_path / "bundle"
-    result = runner.invoke(app, ["readiness-bundle", "--artifacts-dir", str(out_dir), "--json"])
+    result = runner.invoke(
+        app,
+        ["readiness-bundle", "--artifacts-dir", str(out_dir), "--json", "--no-include-release-readiness"],
+    )
     assert result.exit_code == 1
     payload = json.loads(result.stdout)
     assert payload["ok"] is False
+
+
+def test_readiness_bundle_includes_release_artifact(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        "openlvm.cli._readiness_bundle_payload",
+        lambda **kwargs: {
+            "ok": True,
+            "doctor": {"ok": True, "checks": [], "missing": []},
+            "arena_readiness": {"can_real_submission": True, "adapter_mode": "agentkit-session", "reasons": []},
+            "arena_preflight": {"ok": True, "checks": []},
+            "ci_gate": {"ok": True, "summary": "ci-gate: ok"},
+            "action_plan": [],
+            "readiness_score": 95,
+            "readiness_score_threshold": 80,
+            "readiness_score_ok": True,
+        },
+    )
+    monkeypatch.setattr(
+        "openlvm.cli._release_readiness_payload",
+        lambda **kwargs: {
+            "ok": True,
+            "decision": "go",
+            "decision_reason": "All readiness and integration thresholds satisfied",
+            "bundle": {"ok": True, "readiness_score": 95, "readiness_score_threshold": 80, "readiness_score_ok": True},
+            "summary": {},
+            "integration_threshold_count": 1,
+            "integration_threshold_percent": 70,
+            "blockers": [],
+            "next_actions": [],
+        },
+    )
+    out_dir = tmp_path / "bundle"
+    result = runner.invoke(app, ["readiness-bundle", "--artifacts-dir", str(out_dir), "--json"])
+    assert result.exit_code == 0
+    assert (out_dir / "release-readiness.json").exists()
+    payload = json.loads((out_dir / "readiness-bundle.json").read_text(encoding="utf-8"))
+    assert payload["release_enforcement"] == "strict"
+    assert payload["release_enforcement_ok"] is True
 
 
 def test_readiness_plan_command_outputs_json(monkeypatch):

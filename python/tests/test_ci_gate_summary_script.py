@@ -124,3 +124,25 @@ def test_ci_gate_summary_includes_release_decision_when_present(tmp_path):
     summary = module._build_summary(artifacts)
     assert "Release decision: **HOLD**" in summary
     assert "Release enforcement: `allow-hold` (`pass`)" in summary
+
+
+def test_ci_gate_summary_uses_release_from_bundle_when_file_missing(tmp_path):
+    module = _load_summary_module()
+    artifacts = tmp_path / "artifacts"
+    artifacts.mkdir(parents=True, exist_ok=True)
+    (artifacts / "readiness-bundle.json").write_text(
+        json.dumps(
+            {
+                "ok": True,
+                "doctor": {"ok": True, "missing": []},
+                "arena_readiness": {"can_real_submission": True, "reasons": []},
+                "arena_preflight": {"ok": True, "checks": []},
+                "ci_gate": {"ok": True},
+                "release_readiness": {"decision": "go", "enforcement": "strict", "enforcement_ok": True},
+            }
+        ),
+        encoding="utf-8",
+    )
+    summary = module._build_summary(artifacts)
+    assert "Release decision: **GO**" in summary
+    assert "Release enforcement: `strict` (`pass`)" in summary

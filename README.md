@@ -45,6 +45,7 @@ openlvm ci-gate --text --summary
 openlvm ci-gate --output-file .\artifacts\ci-gate.json
 openlvm readiness-bundle --artifacts-dir .\artifacts
 openlvm readiness-bundle --artifacts-dir .\artifacts --min-readiness-score 85
+openlvm readiness-bundle --include-release-readiness --release-enforcement allow-hold
 openlvm readiness-bundle --json
 openlvm readiness-plan
 openlvm readiness-plan --min-readiness-score 85

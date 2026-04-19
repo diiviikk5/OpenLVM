@@ -37,6 +37,7 @@ solana --version
 - `openlvm ci-gate --output-file <path>` writes the consolidated gate JSON to a CI artifact file.
 - `openlvm readiness-bundle --artifacts-dir <path>` writes doctor/readiness/preflight/ci-gate plus a combined bundle payload in one run.
 - `openlvm readiness-bundle --min-readiness-score <0-100>` enforces a quality bar in addition to pass/fail checks.
+- `openlvm readiness-bundle --include-release-readiness --release-enforcement <policy>` can embed and enforce release decisions in one pass.
 - `openlvm readiness-plan` prints prioritized remediation commands to reach full readiness.
 - `openlvm readiness-plan --json` emits machine-readable remediation actions for automation.
 - `openlvm release-readiness` computes a GO/HOLD/BLOCKED release decision from readiness + integration coverage thresholds.
