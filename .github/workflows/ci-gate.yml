@@ -42,10 +42,16 @@ jobs:
           python -m openlvm.cli readiness-bundle --json --artifacts-dir artifacts --min-readiness-score 80
 
       - name: Run release readiness report
+        id: release
         if: always()
         continue-on-error: true
         run: |
-          python -m openlvm.cli release-readiness --json --output-file artifacts/release-readiness.json --min-readiness-score 80 --min-integration-ready-percent 70
+          MODE="strict"
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            MODE="allow-hold"
+          fi
+          echo "Using release enforcement mode: ${MODE}"
+          python -m openlvm.cli release-readiness --json --output-file artifacts/release-readiness.json --min-readiness-score 80 --min-integration-ready-percent 70 --enforcement "${MODE}"
 
       - name: Upload gate artifacts
         if: always()
@@ -68,4 +74,10 @@ jobs:
         if: steps.gate.outcome != 'success'
         run: |
           echo "ci-gate reported failure; inspect artifacts for details."
+          exit 1
+
+      - name: Enforce release readiness policy
+        if: steps.release.outcome != 'success'
+        run: |
+          echo "release-readiness policy check failed; inspect artifacts/release-readiness.json"
           exit 1

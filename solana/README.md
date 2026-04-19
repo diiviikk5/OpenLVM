@@ -40,6 +40,7 @@ solana --version
 - `openlvm readiness-plan` prints prioritized remediation commands to reach full readiness.
 - `openlvm readiness-plan --json` emits machine-readable remediation actions for automation.
 - `openlvm release-readiness` computes a GO/HOLD/BLOCKED release decision from readiness + integration coverage thresholds.
+- `openlvm release-readiness --enforcement strict|allow-hold|report-only` controls gate policy behavior per environment.
 - Workbench `GET /api/workbench/arena/readiness` exposes whether strict real submission is currently possible.
 - `openlvm arena-integrations` lists hub integrations and local readiness.
 - Arena runs are persisted in the operator store (`arena_runs` table).

@@ -113,7 +113,7 @@ def test_ci_gate_summary_includes_release_decision_when_present(tmp_path):
     artifacts = tmp_path / "artifacts"
     artifacts.mkdir(parents=True, exist_ok=True)
     (artifacts / "release-readiness.json").write_text(
-        json.dumps({"decision": "hold"}),
+        json.dumps({"decision": "hold", "enforcement": "allow-hold", "enforcement_ok": True}),
         encoding="utf-8",
     )
     (artifacts / "ci-gate.json").write_text(
@@ -123,3 +123,4 @@ def test_ci_gate_summary_includes_release_decision_when_present(tmp_path):
 
     summary = module._build_summary(artifacts)
     assert "Release decision: **HOLD**" in summary
+    assert "Release enforcement: `allow-hold` (`pass`)" in summary

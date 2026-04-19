@@ -56,6 +56,8 @@ def _build_summary(artifacts_dir: Path) -> str:
         "",
         f"- Overall: **{overall}**",
         f"- Release decision: **{str(release.get('decision', 'n/a')).upper()}**",
+        f"- Release enforcement: `{release.get('enforcement', 'n/a')}` "
+        f"(`{'pass' if release.get('enforcement_ok') else 'fail' if 'enforcement_ok' in release else 'n/a'}`)",
         f"- Doctor: **{doctor_ok}**",
         f"- Arena readiness: **{readiness_ok}**",
         f"- Arena preflight: **{preflight_ok}**",

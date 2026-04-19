@@ -809,3 +809,61 @@ def test_release_readiness_command_json_blocked(monkeypatch):
     payload = json.loads(result.stdout)
     assert payload["decision"] == "blocked"
     assert len(payload["blockers"]) == 1
+
+
+def test_release_readiness_allow_hold_policy_passes(monkeypatch):
+    monkeypatch.setattr(
+        "openlvm.cli._release_readiness_payload",
+        lambda **kwargs: {
+            "ok": False,
+            "decision": "hold",
+            "decision_reason": "Readiness checks partially satisfied; remediation required",
+            "bundle": {"readiness_score": 78, "readiness_score_threshold": 80},
+            "summary": {
+                "ci_gate_ok": True,
+                "real_submission_ok": True,
+                "ready_integrations": 2,
+                "total_integrations": 3,
+                "ready_percent": 66.67,
+            },
+            "integration_threshold_count": 3,
+            "integration_threshold_percent": 70,
+            "blockers": [],
+            "next_actions": [],
+        },
+    )
+    result = runner.invoke(app, ["release-readiness", "--json", "--enforcement", "allow-hold"])
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["decision"] == "hold"
+    assert payload["enforcement"] == "allow-hold"
+    assert payload["enforcement_ok"] is True
+
+
+def test_release_readiness_report_only_policy_passes_blocked(monkeypatch):
+    monkeypatch.setattr(
+        "openlvm.cli._release_readiness_payload",
+        lambda **kwargs: {
+            "ok": False,
+            "decision": "blocked",
+            "decision_reason": "Core readiness checks failed; release blocked",
+            "bundle": {"readiness_score": 35, "readiness_score_threshold": 80},
+            "summary": {
+                "ci_gate_ok": False,
+                "real_submission_ok": False,
+                "ready_integrations": 1,
+                "total_integrations": 3,
+                "ready_percent": 33.33,
+            },
+            "integration_threshold_count": 3,
+            "integration_threshold_percent": 70,
+            "blockers": [],
+            "next_actions": [],
+        },
+    )
+    result = runner.invoke(app, ["release-readiness", "--json", "--enforcement", "report-only"])
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["decision"] == "blocked"
+    assert payload["enforcement"] == "report-only"
+    assert payload["enforcement_ok"] is True

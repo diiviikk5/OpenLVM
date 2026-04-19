@@ -783,6 +783,11 @@ def release_readiness(
         "--min-integration-ready-percent",
         help="Minimum percent of integration hub entries that must be locally ready",
     ),
+    enforcement: str = typer.Option(
+        "strict",
+        "--enforcement",
+        help="Release gate policy: strict|allow-hold|report-only",
+    ),
     json_output: bool = typer.Option(False, "--json", help="Print machine-readable JSON output"),
     output_file: Optional[Path] = typer.Option(None, "--output-file", help="Write JSON payload to file"),
 ):
@@ -794,6 +799,18 @@ def release_readiness(
         min_readiness_score=min_readiness_score,
         min_integration_ready_percent=min_integration_ready_percent,
     )
+    mode = str(enforcement).strip().lower() or "strict"
+    if mode not in {"strict", "allow-hold", "report-only"}:
+        raise typer.BadParameter("--enforcement must be one of: strict, allow-hold, report-only")
+    decision = str(payload.get("decision", "")).strip().lower()
+    if mode == "strict":
+        enforcement_ok = decision == "go"
+    elif mode == "allow-hold":
+        enforcement_ok = decision in {"go", "hold"}
+    else:
+        enforcement_ok = True
+    payload["enforcement"] = mode
+    payload["enforcement_ok"] = enforcement_ok
     if output_file:
         _write_json_output_file(output_file, payload)
     if json_output:
@@ -805,6 +822,7 @@ def release_readiness(
         table.add_column("Value", style="magenta")
         table.add_row("decision", str(payload.get("decision", "")).upper())
         table.add_row("reason", str(payload.get("decision_reason", "")))
+        table.add_row("enforcement", f"{mode} ({'pass' if enforcement_ok else 'fail'})")
         table.add_row(
             "readiness score",
             (
@@ -838,7 +856,7 @@ def release_readiness(
                     str(blocker.get("command", "")),
                 )
             console.print(blockers_table)
-    if payload.get("decision") != "go":
+    if not enforcement_ok:
         raise typer.Exit(code=1)
 
 
