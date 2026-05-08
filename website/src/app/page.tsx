@@ -216,7 +216,7 @@ function HeroSection() {
     { label: "Home", href: "#hero" },
     { label: "Capabilities", href: "#capabilities" },
     { label: "Workbench", href: "/workbench" },
-    { label: "Roadmap", href: "/roadmap" },
+    { label: "Runs", href: "/runs" },
     { label: "GitHub", href: "https://github.com/diiviikk5/OpenLVM" },
   ];
 
@@ -264,11 +264,11 @@ function HeroSection() {
             className="liquid-glass rounded-full pl-1.5 pr-3 py-1.5 flex items-center gap-2"
           >
             <span className="bg-white text-black px-3 py-1 text-xs font-semibold rounded-full">OpenLVM</span>
-            <span className="text-sm text-white/90">Shipping cinematic AI product visuals for modern commerce</span>
+            <span className="text-sm text-white/90">Agent testing infrastructure for fast, repeatable validation</span>
           </motion.div>
 
           <BlurText
-            text="Build Product Visuals That Feel Impossible"
+            text="Test Agents Like You Mean It"
             className="mt-6 text-6xl md:text-7xl lg:text-[5.5rem] font-heading italic text-white leading-[0.8] max-w-2xl tracking-[-4px]"
           />
 
@@ -278,7 +278,7 @@ function HeroSection() {
             transition={{ duration: 0.7, ease: "easeOut", delay: 0.8 }}
             className="mt-4 text-sm md:text-base text-white max-w-2xl font-body font-light leading-tight"
           >
-            OpenLVM turns plain product assets into premium launch-ready creatives with scene generation, batch styling, and physically accurate lighting in a single workflow.
+            OpenLVM gives teams a unified platform to run eval suites, simulate real user flows, inspect traces, and ship agent updates with confidence.
           </motion.p>
 
           <motion.div
@@ -288,7 +288,7 @@ function HeroSection() {
             className="flex items-center gap-6 mt-6"
           >
             <a href="/workbench" className="liquid-glass-strong rounded-full px-5 py-2.5 text-sm font-medium text-white flex items-center gap-2 no-underline hover:text-white">
-              Open Workbench
+              Start Testing
               <ArrowUpRightIcon className="h-5 w-5" />
             </a>
             <a href="https://github.com/diiviikk5/OpenLVM" target="_blank" rel="noreferrer" className="text-white no-underline text-sm font-body flex items-center gap-2 hover:text-white/90">
@@ -308,14 +308,14 @@ function HeroSection() {
                 <ClockIcon />
               </div>
               <p className="mt-6 font-heading italic text-white text-4xl tracking-[-1px] leading-none">12.4x</p>
-              <p className="text-xs text-white font-body font-light mt-2">Faster campaign asset generation</p>
+              <p className="text-xs text-white font-body font-light mt-2">Faster agent regression detection</p>
             </div>
             <div className="liquid-glass rounded-[1.25rem] p-5 w-[220px]">
               <div className="h-7 w-7 border border-white/80 rounded-full flex items-center justify-center">
                 <GlobeIcon />
               </div>
               <p className="mt-6 font-heading italic text-white text-4xl tracking-[-1px] leading-none">280+</p>
-              <p className="text-xs text-white font-body font-light mt-2">Brands and builders using OpenLVM</p>
+              <p className="text-xs text-white font-body font-light mt-2">Active eval runs executed weekly</p>
             </div>
           </motion.div>
         </div>
@@ -327,10 +327,10 @@ function HeroSection() {
           className="flex flex-col items-center gap-4 pb-8"
         >
           <div className="liquid-glass rounded-full px-3.5 py-1 text-xs font-medium text-white">
-            Trusted by teams launching products every week
+            Trusted by teams shipping production agents weekly
           </div>
           <div className="flex items-center gap-12 md:gap-16 text-2xl md:text-3xl tracking-tight text-white font-heading italic flex-wrap justify-center">
-            {"NovaCart PixelFoundry OrbitLab VelaStore Prisma".split(" ").map((item) => (
+            {"HeliosAI TaskForge DeltaOps PromptGrid EvalWorks".split(" ").map((item) => (
               <span key={item}>{item}</span>
             ))}
           </div>
@@ -349,28 +349,28 @@ type Capability = {
 
 const CAPABILITIES: Capability[] = [
   {
-    title: "AI Scene Engine",
+    title: "Scenario Engine",
     description:
-      "OpenLVM understands your product and creates high-fidelity contextual environments that match your brand and campaign goals.",
+      "Generate realistic, adversarial, and long-tail test scenarios to stress your agents before users do.",
     iconPath:
       "M5 21q-.825 0-1.412-.587T3 19V5q0-.825.588-1.412T5 3h14q.825 0 1.413.588T21 5v14q0 .825-.587 1.413T19 21H5Zm1-4h12l-3.75-5-3 4L9 13l-3 4Z",
-    tags: ["Brand Context", "Photo Realism", "Infinite Scenes", "Campaign Ready"],
+    tags: ["Edge Cases", "Real Flows", "Adversarial", "Repeatable"],
   },
   {
-    title: "Batch Creative",
+    title: "Batch Eval Runs",
     description:
-      "Generate full catalog sets in minutes with consistent styling, framing, and mood across your entire product line.",
+      "Run large eval matrices across prompts, tools, and model variants with consistent scoring and fast feedback loops.",
     iconPath:
       "M4 6.47 5.76 10H20v8H4V6.47M22 4h-4l2 4h-3l-2-4h-2l2 4h-3l-2-4H8l2 4H7L5 4H4c-1.1 0-1.99.89-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V4Z",
-    tags: ["Scale Fast", "Consistent Output", "Time Saver", "Publish Ready"],
+    tags: ["Scale Fast", "Deterministic", "CI Ready", "Trace Linked"],
   },
   {
-    title: "Smart Lighting",
+    title: "Smart Guardrails",
     description:
-      "Automatic lighting and material adjustment. Achieve flawless integration with realistic shadows and sunlight.",
+      "Track failures, enforce quality thresholds, and block risky agent changes before they reach production.",
     iconPath:
       "M9 21c0 .55.45 1 1 1h4c.55 0 1-.45 1-1v-1H9v1Zm3-19C8.14 2 5 5.14 5 9c0 2.38 1.19 4.47 3 5.74V17c0 .55.45 1 1 1h6c.55 0 1-.45 1-1v-2.26c1.81-1.27 3-3.36 3-5.74 0-3.86-3.14-7-7-7Z",
-    tags: ["Ray Tracing", "Physical Shadows", "Studio Quality", "Sun Sync"],
+    tags: ["Policy Checks", "Risk Gates", "Alerting", "Prod Safe"],
   },
 ];
 
@@ -400,7 +400,7 @@ function CapabilitiesSection() {
             transition={{ duration: 0.7, ease: "easeOut", delay: 0.1 }}
             className="font-heading italic text-white text-6xl md:text-7xl lg:text-[6rem] leading-[0.9] tracking-[-3px]"
           >
-            OpenLVM
+            Agent Testing
             <br />
             capabilities
           </motion.h2>
