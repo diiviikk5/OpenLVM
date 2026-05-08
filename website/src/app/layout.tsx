@@ -1,39 +1,25 @@
-import type { Metadata } from "next";
-import { Inter, JetBrains_Mono } from "next/font/google";
+﻿import type { Metadata } from "next";
+import { Barlow, Instrument_Serif } from "next/font/google";
 import "./globals.css";
 
-const inter = Inter({
-  variable: "--font-inter",
+const barlow = Barlow({
+  variable: "--font-barlow",
   subsets: ["latin"],
+  weight: ["300", "400", "500", "600"],
   display: "swap",
 });
 
-const jetbrainsMono = JetBrains_Mono({
-  variable: "--font-jetbrains",
+const instrument = Instrument_Serif({
+  variable: "--font-instrument",
+  weight: "400",
   subsets: ["latin"],
   display: "swap",
 });
 
 export const metadata: Metadata = {
-  title: "OpenLVM — Agent-Native VM & Testing Framework",
+  title: "OpenLVM",
   description:
-    "The performance-first agent-native virtual machine with built-in testing, observability, chaos simulation, and deterministic replay. Fork. Test. Ship.",
-  keywords: [
-    "agent VM",
-    "LLM testing",
-    "multi-agent",
-    "copy-on-write",
-    "AI sandbox",
-    "eval framework",
-    "MCP",
-    "observability",
-  ],
-  openGraph: {
-    title: "OpenLVM — Agent-Native VM & Testing Framework",
-    description:
-      "Fork 5000 parallel agent worlds in <5ms. Test with DeepEval + Promptfoo. Observe with OpenTelemetry. Ship with confidence.",
-    type: "website",
-  },
+    "OpenLVM landing experience with cinematic motion backgrounds, liquid-glass UI, and product-visual AI storytelling.",
 };
 
 export default function RootLayout({
@@ -44,11 +30,12 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${inter.variable} ${jetbrainsMono.variable} h-full antialiased`}
+      className={`${barlow.variable} ${instrument.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col font-[family-name:var(--font-inter)] bg-near-black text-ivory">
+      <body className="min-h-full flex flex-col font-body bg-black text-white">
         {children}
       </body>
     </html>
   );
 }
+
