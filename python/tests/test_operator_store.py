@@ -19,6 +19,39 @@ def test_operator_store_creates_workspace_collection_scenario_and_baseline(tmp_p
     assert store.list_baselines(collection.collection_id)[0].baseline_id == baseline.baseline_id
 
 
+def test_operator_store_persists_scenario_execution_fields(tmp_path):
+    store = OperatorStore(tmp_path / "operator_store.db")
+    workspace = store.create_workspace("Team A", "Primary workspace")
+    collection = store.create_collection(workspace.workspace_id, "Customer Support")
+    scenario = store.save_scenario(
+        collection.collection_id,
+        "exec-flow",
+        "examples/swarm.yaml",
+        "Run executable path",
+        execution_command='python -c "print(123)"',
+        execution_timeout_ms=12000,
+        execution_cwd=".",
+        execution_env_json='{"OPENLVM_TEST":"1"}',
+        success_exit_codes_json="[0,2]",
+    )
+    updated = store.update_saved_scenario(
+        scenario.scenario_id,
+        execution_command='python -c "import sys; sys.exit(2)"',
+        execution_timeout_ms=13000,
+        execution_cwd="python",
+        execution_env_json='{"OPENLVM_TEST":"2"}',
+        success_exit_codes_json="[0,2,3]",
+    )
+
+    listed = store.list_saved_scenarios(collection.collection_id)
+    assert listed[0].execution_command
+    assert listed[0].execution_timeout_ms == 13000
+    assert listed[0].execution_cwd == "python"
+    assert listed[0].execution_env_json == '{"OPENLVM_TEST":"2"}'
+    assert listed[0].success_exit_codes_json == "[0,2,3]"
+    assert updated.execution_timeout_ms == 13000
+
+
 def test_operator_store_updates_deletes_and_audits(tmp_path):
     store = OperatorStore(tmp_path / "operator_store.db")
     workspace = store.create_workspace("Team A", actor_id="alice")

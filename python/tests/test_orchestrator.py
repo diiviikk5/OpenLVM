@@ -99,6 +99,36 @@ def test_orchestrator_runs_saved_collection(tmp_path):
     assert eval_store.get_run(run.run_id).run_id == run.run_id
 
 
+def test_orchestrator_run_collection_executes_saved_scenario_command(tmp_path):
+    eval_store = EvalStore(tmp_path / "eval_store.db")
+    operator_store = OperatorStore(tmp_path / "operator_store.db")
+    orchestrator = TestOrchestrator(
+        runtime=SimulatedOpenLVMRuntime(),
+        eval_store=eval_store,
+        operator_store=operator_store,
+    )
+    config_path = Path(__file__).resolve().parents[2] / "examples" / "swarm.yaml"
+
+    workspace = operator_store.create_workspace("Team A")
+    collection = operator_store.create_collection(workspace.workspace_id, "Support")
+    operator_store.save_scenario(
+        collection.collection_id,
+        "exec-flow",
+        str(config_path),
+        "run command",
+        execution_command=f'"{sys.executable}" -c "print(\'collection-exec\')"',
+        execution_timeout_ms=12000,
+        success_exit_codes_json="[0]",
+    )
+
+    run = orchestrator.run_collection(collection.collection_id)
+    result = run.results[0]
+
+    assert result.status == "passed"
+    assert result.execution["success"] is True
+    assert "collection-exec" in result.execution["stdout"]
+
+
 def test_orchestrator_executes_scenario_command(tmp_path):
     orchestrator = TestOrchestrator(
         runtime=SimulatedOpenLVMRuntime(),

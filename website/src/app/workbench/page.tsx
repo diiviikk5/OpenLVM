@@ -12,6 +12,11 @@ type Scenario = {
   name: string;
   config_path: string;
   input_text: string;
+  execution_command?: string;
+  execution_timeout_ms?: number;
+  execution_cwd?: string;
+  execution_env_json?: string;
+  success_exit_codes_json?: string;
 };
 type Run = {
   run_id: string;
@@ -289,6 +294,11 @@ export default function WorkbenchPage() {
   const [scenarioName, setScenarioName] = useState("");
   const [scenarioConfig, setScenarioConfig] = useState("examples/swarm.yaml");
   const [scenarioInput, setScenarioInput] = useState("");
+  const [scenarioExecutionCommand, setScenarioExecutionCommand] = useState("");
+  const [scenarioExecutionTimeoutMs, setScenarioExecutionTimeoutMs] = useState("30000");
+  const [scenarioExecutionCwd, setScenarioExecutionCwd] = useState("");
+  const [scenarioExecutionEnvJson, setScenarioExecutionEnvJson] = useState("{}");
+  const [scenarioSuccessExitCodesJson, setScenarioSuccessExitCodesJson] = useState("[0]");
 
   const [baselineRun, setBaselineRun] = useState("");
   const [baselineLabel, setBaselineLabel] = useState("stable");
@@ -490,6 +500,11 @@ export default function WorkbenchPage() {
     setScenarioName(s.name);
     setScenarioConfig(s.config_path);
     setScenarioInput(s.input_text);
+    setScenarioExecutionCommand(s.execution_command || "");
+    setScenarioExecutionTimeoutMs(String(s.execution_timeout_ms || 30000));
+    setScenarioExecutionCwd(s.execution_cwd || "");
+    setScenarioExecutionEnvJson(s.execution_env_json || "{}");
+    setScenarioSuccessExitCodesJson(s.success_exit_codes_json || "[0]");
   };
 
   const ensureQuickCollection = async (): Promise<string> => {
@@ -1155,9 +1170,43 @@ export default function WorkbenchPage() {
             <input className="w-full bg-dark-surface p-2 rounded" placeholder="Scenario name" value={scenarioName} onChange={(e) => setScenarioName(e.target.value)} />
             <input className="w-full bg-dark-surface p-2 rounded" placeholder="Config path" value={scenarioConfig} onChange={(e) => setScenarioConfig(e.target.value)} />
             <textarea className="w-full bg-dark-surface p-2 rounded" placeholder="Input" value={scenarioInput} onChange={(e) => setScenarioInput(e.target.value)} />
+            <input
+              className="w-full bg-dark-surface p-2 rounded"
+              placeholder='Execution command (optional, e.g. python -c "print(123)")'
+              value={scenarioExecutionCommand}
+              onChange={(e) => setScenarioExecutionCommand(e.target.value)}
+            />
+            <div className="grid gap-2 md:grid-cols-2">
+              <input
+                className="w-full bg-dark-surface p-2 rounded"
+                placeholder="Execution timeout ms"
+                value={scenarioExecutionTimeoutMs}
+                onChange={(e) => setScenarioExecutionTimeoutMs(e.target.value)}
+              />
+              <input
+                className="w-full bg-dark-surface p-2 rounded"
+                placeholder="Execution cwd (optional)"
+                value={scenarioExecutionCwd}
+                onChange={(e) => setScenarioExecutionCwd(e.target.value)}
+              />
+            </div>
+            <div className="grid gap-2 md:grid-cols-2">
+              <input
+                className="w-full bg-dark-surface p-2 rounded"
+                placeholder='Execution env JSON (e.g. {"FOO":"bar"})'
+                value={scenarioExecutionEnvJson}
+                onChange={(e) => setScenarioExecutionEnvJson(e.target.value)}
+              />
+              <input
+                className="w-full bg-dark-surface p-2 rounded"
+                placeholder="Success exit codes JSON (e.g. [0,2])"
+                value={scenarioSuccessExitCodesJson}
+                onChange={(e) => setScenarioSuccessExitCodesJson(e.target.value)}
+              />
+            </div>
             <div className="flex gap-2">
-              <button className="bg-terracotta px-3 py-1 rounded disabled:opacity-50" disabled={!canEditScenarioCollection} onClick={async () => { try { if (scenarioEditId) { await postJson("/api/workbench/scenario", { scenario_id: scenarioEditId, name: scenarioName, config_path: scenarioConfig, input_text: scenarioInput }, "PATCH"); } else { await postJson("/api/workbench/scenario", { collection_id: scenarioCollection, name: scenarioName, config_path: scenarioConfig, input_text: scenarioInput }); } setScenarioEditId(""); setScenarioName(""); setScenarioInput(""); setScenarioConfig("examples/swarm.yaml"); await load(); setMsg("Scenario saved"); } catch (e) { setError(String(e)); } }}>{scenarioEditId ? "Update" : "Save"}</button>
-              {scenarioEditId && <button className="border border-border-dark px-3 py-1 rounded" onClick={() => { setScenarioEditId(""); setScenarioName(""); setScenarioInput(""); setScenarioConfig("examples/swarm.yaml"); }}>Cancel</button>}
+              <button className="bg-terracotta px-3 py-1 rounded disabled:opacity-50" disabled={!canEditScenarioCollection} onClick={async () => { try { const timeout = Number.parseInt(scenarioExecutionTimeoutMs, 10); if (Number.isNaN(timeout) || timeout < 1) { setError("Execution timeout must be a positive integer"); return; } if (scenarioEditId) { await postJson("/api/workbench/scenario", { scenario_id: scenarioEditId, name: scenarioName, config_path: scenarioConfig, input_text: scenarioInput, execution_command: scenarioExecutionCommand, execution_timeout_ms: timeout, execution_cwd: scenarioExecutionCwd, execution_env_json: scenarioExecutionEnvJson, success_exit_codes_json: scenarioSuccessExitCodesJson }, "PATCH"); } else { await postJson("/api/workbench/scenario", { collection_id: scenarioCollection, name: scenarioName, config_path: scenarioConfig, input_text: scenarioInput, execution_command: scenarioExecutionCommand, execution_timeout_ms: timeout, execution_cwd: scenarioExecutionCwd, execution_env_json: scenarioExecutionEnvJson, success_exit_codes_json: scenarioSuccessExitCodesJson }); } setScenarioEditId(""); setScenarioName(""); setScenarioInput(""); setScenarioConfig("examples/swarm.yaml"); setScenarioExecutionCommand(""); setScenarioExecutionTimeoutMs("30000"); setScenarioExecutionCwd(""); setScenarioExecutionEnvJson("{}"); setScenarioSuccessExitCodesJson("[0]"); await load(); setMsg("Scenario saved"); } catch (e) { setError(String(e)); } }}>{scenarioEditId ? "Update" : "Save"}</button>
+              {scenarioEditId && <button className="border border-border-dark px-3 py-1 rounded" onClick={() => { setScenarioEditId(""); setScenarioName(""); setScenarioInput(""); setScenarioConfig("examples/swarm.yaml"); setScenarioExecutionCommand(""); setScenarioExecutionTimeoutMs("30000"); setScenarioExecutionCwd(""); setScenarioExecutionEnvJson("{}"); setScenarioSuccessExitCodesJson("[0]"); }}>Cancel</button>}
             </div>
           </div>
         </section>
@@ -1208,7 +1257,12 @@ export default function WorkbenchPage() {
         <div className="space-y-2">
           {scenarios.map((s) => (
             <div key={s.scenario_id} className="flex items-center justify-between border border-border-dark rounded p-2">
-              <div>{s.name}</div>
+              <div>
+                <div>{s.name}</div>
+                {s.execution_command ? (
+                  <div className="text-xs text-warm-silver">exec: {s.execution_command}</div>
+                ) : null}
+              </div>
               <div className="flex gap-2">
                 <button className="border border-border-dark px-2 py-1 rounded" onClick={() => setEditing(s)}>Edit</button>
                 <button className="border border-coral px-2 py-1 rounded text-coral disabled:opacity-50" disabled={!canEditSelectedCollection} onClick={async () => { try { await postJson("/api/workbench/scenario", { scenario_id: s.scenario_id }, "DELETE"); await load(); setMsg("Scenario deleted"); } catch (e) { setError(String(e)); } }}>Delete</button>

@@ -36,6 +36,11 @@ export async function POST(request: NextRequest) {
       name?: string;
       config_path?: string;
       input_text?: string;
+      execution_command?: string;
+      execution_timeout_ms?: number;
+      execution_cwd?: string;
+      execution_env_json?: string;
+      success_exit_codes_json?: string;
     };
     if (!payload.collection_id || !payload.name || !payload.config_path || !payload.input_text) {
       return contextError("collection_id, name, config_path, and input_text are required", ctx, 400);
@@ -47,6 +52,11 @@ export async function POST(request: NextRequest) {
       payload.config_path,
       payload.input_text,
       ctx.actorId,
+      payload.execution_command || "",
+      String(payload.execution_timeout_ms || 30000),
+      payload.execution_cwd || "",
+      payload.execution_env_json || "{}",
+      payload.success_exit_codes_json || "[0]",
     ]);
     if (typeof data === "object" && data && "error" in data) {
       const detail = String((data as { error: string }).error);
@@ -69,6 +79,11 @@ export async function PATCH(request: NextRequest) {
       name?: string;
       config_path?: string;
       input_text?: string;
+      execution_command?: string;
+      execution_timeout_ms?: number;
+      execution_cwd?: string;
+      execution_env_json?: string;
+      success_exit_codes_json?: string;
     };
     if (!payload.scenario_id || !payload.name || !payload.config_path || !payload.input_text) {
       return contextError("scenario_id, name, config_path, and input_text are required", ctx, 400);
@@ -80,6 +95,11 @@ export async function PATCH(request: NextRequest) {
       payload.config_path,
       payload.input_text,
       ctx.actorId,
+      payload.execution_command || "",
+      String(payload.execution_timeout_ms || 30000),
+      payload.execution_cwd || "",
+      payload.execution_env_json || "{}",
+      payload.success_exit_codes_json || "[0]",
     ]);
     if (typeof data === "object" && data && "error" in data) {
       const detail = String((data as { error: string }).error);

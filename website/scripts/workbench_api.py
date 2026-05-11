@@ -492,6 +492,11 @@ def _save_scenario(args: list[str]) -> dict:
     config_path = _resolve_config_path(args[2])
     input_text = args[3]
     actor_id = args[4]
+    execution_command = args[5] if len(args) > 5 else ""
+    execution_timeout_ms = int(args[6]) if len(args) > 6 and args[6] else 30000
+    execution_cwd = args[7] if len(args) > 7 else ""
+    execution_env_json = args[8] if len(args) > 8 and args[8] else "{}"
+    success_exit_codes_json = args[9] if len(args) > 9 and args[9] else "[0]"
     _require_authenticated_actor(actor_id)
     _assert_collection_access(collection_id, actor_id, "editor")
     return _operator_store().save_scenario(
@@ -499,6 +504,11 @@ def _save_scenario(args: list[str]) -> dict:
         name,
         config_path,
         input_text,
+        execution_command=execution_command,
+        execution_timeout_ms=execution_timeout_ms,
+        execution_cwd=execution_cwd,
+        execution_env_json=execution_env_json,
+        success_exit_codes_json=success_exit_codes_json,
         actor_id=actor_id,
     ).model_dump()
 
@@ -533,6 +543,11 @@ def _update_scenario(args: list[str]) -> dict:
     config_path = _resolve_config_path(args[2])
     input_text = args[3]
     actor_id = args[4]
+    execution_command = args[5] if len(args) > 5 else ""
+    execution_timeout_ms = int(args[6]) if len(args) > 6 and args[6] else 30000
+    execution_cwd = args[7] if len(args) > 7 else ""
+    execution_env_json = args[8] if len(args) > 8 and args[8] else "{}"
+    success_exit_codes_json = args[9] if len(args) > 9 and args[9] else "[0]"
     _require_authenticated_actor(actor_id)
     scenario = _operator_store().get_saved_scenario(scenario_id)
     _assert_collection_access(scenario.collection_id, actor_id, "editor")
@@ -541,6 +556,11 @@ def _update_scenario(args: list[str]) -> dict:
         name=name,
         config_path=config_path,
         input_text=input_text,
+        execution_command=execution_command,
+        execution_timeout_ms=execution_timeout_ms,
+        execution_cwd=execution_cwd,
+        execution_env_json=execution_env_json,
+        success_exit_codes_json=success_exit_codes_json,
         actor_id=actor_id,
     ).model_dump()
 

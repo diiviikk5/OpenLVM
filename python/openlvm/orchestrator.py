@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import subprocess
 import tempfile
@@ -196,7 +197,17 @@ class TestOrchestrator:
         config = base_config.model_copy(deep=True)
         config.name = f"{base_config.name}:{collection_summary['collection']['name']}"
         config.scenarios = {
-            entry["name"]: ScenarioConfig(input=entry["input_text"])
+            entry["name"]: ScenarioConfig(
+                input=entry["input_text"],
+                execution_command=entry.get("execution_command") or None,
+                execution_timeout_ms=int(entry.get("execution_timeout_ms") or 30000),
+                execution_cwd=entry.get("execution_cwd") or None,
+                execution_env=self._safe_json_dict(entry.get("execution_env_json")),
+                success_exit_codes=self._safe_json_int_list(
+                    entry.get("success_exit_codes_json"),
+                    default=[0],
+                ),
+            )
             for entry in reversed(saved_scenarios)
         }
 
@@ -448,6 +459,36 @@ class TestOrchestrator:
             return self.runtime.get_parent_agent_id(agent_id)
         except Exception:
             return None
+
+    @staticmethod
+    def _safe_json_dict(raw: object) -> dict[str, str]:
+        if not raw:
+            return {}
+        try:
+            value = json.loads(str(raw))
+        except Exception:
+            return {}
+        if not isinstance(value, dict):
+            return {}
+        return {str(key): str(val) for key, val in value.items()}
+
+    @staticmethod
+    def _safe_json_int_list(raw: object, *, default: list[int]) -> list[int]:
+        if not raw:
+            return list(default)
+        try:
+            value = json.loads(str(raw))
+        except Exception:
+            return list(default)
+        if not isinstance(value, list):
+            return list(default)
+        result: list[int] = []
+        for token in value:
+            try:
+                result.append(int(token))
+            except Exception:
+                continue
+        return result or list(default)
 
     def _run_deepeval_metrics(self, config: TestSuiteConfig, agent_output: str) -> dict[str, float]:
         metrics = config.metrics.deepeval or []

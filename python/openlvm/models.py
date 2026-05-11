@@ -167,6 +167,11 @@ class SavedScenarioRecord(BaseModel):
     name: str
     config_path: str
     input_text: str
+    execution_command: str = ""
+    execution_timeout_ms: int = 30000
+    execution_cwd: str = ""
+    execution_env_json: str = "{}"
+    success_exit_codes_json: str = "[0]"
     created_at: str
 
 

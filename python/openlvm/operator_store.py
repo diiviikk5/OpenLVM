@@ -85,6 +85,11 @@ class OperatorStore:
                     name TEXT NOT NULL,
                     config_path TEXT NOT NULL,
                     input_text TEXT NOT NULL,
+                    execution_command TEXT NOT NULL DEFAULT '',
+                    execution_timeout_ms INTEGER NOT NULL DEFAULT 30000,
+                    execution_cwd TEXT NOT NULL DEFAULT '',
+                    execution_env_json TEXT NOT NULL DEFAULT '{}',
+                    success_exit_codes_json TEXT NOT NULL DEFAULT '[0]',
                     created_at TEXT NOT NULL
                 )
                 """
@@ -141,6 +146,23 @@ class OperatorStore:
                 )
                 """
             )
+            self._ensure_saved_scenario_columns(conn)
+
+    @staticmethod
+    def _ensure_saved_scenario_columns(conn: sqlite3.Connection) -> None:
+        rows = conn.execute("PRAGMA table_info(saved_scenarios)").fetchall()
+        names = {str(row["name"]) for row in rows}
+        expected = {
+            "execution_command": "TEXT NOT NULL DEFAULT ''",
+            "execution_timeout_ms": "INTEGER NOT NULL DEFAULT 30000",
+            "execution_cwd": "TEXT NOT NULL DEFAULT ''",
+            "execution_env_json": "TEXT NOT NULL DEFAULT '{}'",
+            "success_exit_codes_json": "TEXT NOT NULL DEFAULT '[0]'",
+        }
+        for name, ddl in expected.items():
+            if name in names:
+                continue
+            conn.execute(f"ALTER TABLE saved_scenarios ADD COLUMN {name} {ddl}")
 
     def create_workspace(self, name: str, description: str = "", actor_id: str = "system") -> WorkspaceRecord:
         record = WorkspaceRecord(
@@ -521,6 +543,11 @@ class OperatorStore:
         name: str,
         config_path: str,
         input_text: str,
+        execution_command: str = "",
+        execution_timeout_ms: int = 30000,
+        execution_cwd: str = "",
+        execution_env_json: str = "{}",
+        success_exit_codes_json: str = "[0]",
         actor_id: str = "system",
     ) -> SavedScenarioRecord:
         record = SavedScenarioRecord(
@@ -529,17 +556,33 @@ class OperatorStore:
             name=name,
             config_path=config_path,
             input_text=input_text,
+            execution_command=execution_command or "",
+            execution_timeout_ms=max(1, int(execution_timeout_ms or 30000)),
+            execution_cwd=execution_cwd or "",
+            execution_env_json=execution_env_json or "{}",
+            success_exit_codes_json=success_exit_codes_json or "[0]",
             created_at=self._timestamp(),
         )
         with self._connect() as conn:
             conn.execute(
-                "INSERT INTO saved_scenarios (scenario_id, collection_id, name, config_path, input_text, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                """
+                INSERT INTO saved_scenarios (
+                    scenario_id, collection_id, name, config_path, input_text,
+                    execution_command, execution_timeout_ms, execution_cwd,
+                    execution_env_json, success_exit_codes_json, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
                 (
                     record.scenario_id,
                     record.collection_id,
                     record.name,
                     record.config_path,
                     record.input_text,
+                    record.execution_command,
+                    record.execution_timeout_ms,
+                    record.execution_cwd,
+                    record.execution_env_json,
+                    record.success_exit_codes_json,
                     record.created_at,
                 ),
             )
@@ -578,6 +621,11 @@ class OperatorStore:
         name: Optional[str] = None,
         config_path: Optional[str] = None,
         input_text: Optional[str] = None,
+        execution_command: Optional[str] = None,
+        execution_timeout_ms: Optional[int] = None,
+        execution_cwd: Optional[str] = None,
+        execution_env_json: Optional[str] = None,
+        success_exit_codes_json: Optional[str] = None,
         actor_id: str = "system",
     ) -> SavedScenarioRecord:
         scenario = self.get_saved_scenario(scenario_id)
@@ -587,19 +635,46 @@ class OperatorStore:
             name=name if name is not None else scenario.name,
             config_path=config_path if config_path is not None else scenario.config_path,
             input_text=input_text if input_text is not None else scenario.input_text,
+            execution_command=(
+                execution_command if execution_command is not None else scenario.execution_command
+            ),
+            execution_timeout_ms=max(
+                1,
+                int(
+                    execution_timeout_ms
+                    if execution_timeout_ms is not None
+                    else scenario.execution_timeout_ms
+                ),
+            ),
+            execution_cwd=execution_cwd if execution_cwd is not None else scenario.execution_cwd,
+            execution_env_json=(
+                execution_env_json if execution_env_json is not None else scenario.execution_env_json
+            ),
+            success_exit_codes_json=(
+                success_exit_codes_json
+                if success_exit_codes_json is not None
+                else scenario.success_exit_codes_json
+            ),
             created_at=scenario.created_at,
         )
         with self._connect() as conn:
             conn.execute(
                 """
                 UPDATE saved_scenarios
-                SET name = ?, config_path = ?, input_text = ?
+                SET name = ?, config_path = ?, input_text = ?,
+                    execution_command = ?, execution_timeout_ms = ?, execution_cwd = ?,
+                    execution_env_json = ?, success_exit_codes_json = ?
                 WHERE scenario_id = ?
                 """,
                 (
                     updated.name,
                     updated.config_path,
                     updated.input_text,
+                    updated.execution_command,
+                    updated.execution_timeout_ms,
+                    updated.execution_cwd,
+                    updated.execution_env_json,
+                    updated.success_exit_codes_json,
                     scenario_id,
                 ),
             )
