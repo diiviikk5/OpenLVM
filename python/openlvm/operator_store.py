@@ -550,6 +550,9 @@ class OperatorStore:
         success_exit_codes_json: str = "[0]",
         actor_id: str = "system",
     ) -> SavedScenarioRecord:
+        normalized_timeout_ms = self._normalize_execution_timeout_ms(execution_timeout_ms)
+        normalized_env_json = self._normalize_execution_env_json(execution_env_json)
+        normalized_success_codes_json = self._normalize_success_exit_codes_json(success_exit_codes_json)
         record = SavedScenarioRecord(
             scenario_id=self._new_id("scn"),
             collection_id=collection_id,
@@ -557,10 +560,10 @@ class OperatorStore:
             config_path=config_path,
             input_text=input_text,
             execution_command=execution_command or "",
-            execution_timeout_ms=max(1, int(execution_timeout_ms or 30000)),
+            execution_timeout_ms=normalized_timeout_ms,
             execution_cwd=execution_cwd or "",
-            execution_env_json=execution_env_json or "{}",
-            success_exit_codes_json=success_exit_codes_json or "[0]",
+            execution_env_json=normalized_env_json,
+            success_exit_codes_json=normalized_success_codes_json,
             created_at=self._timestamp(),
         )
         with self._connect() as conn:
@@ -629,6 +632,21 @@ class OperatorStore:
         actor_id: str = "system",
     ) -> SavedScenarioRecord:
         scenario = self.get_saved_scenario(scenario_id)
+        timeout_raw = (
+            execution_timeout_ms
+            if execution_timeout_ms is not None
+            else scenario.execution_timeout_ms
+        )
+        env_json_raw = (
+            execution_env_json
+            if execution_env_json is not None
+            else scenario.execution_env_json
+        )
+        success_codes_raw = (
+            success_exit_codes_json
+            if success_exit_codes_json is not None
+            else scenario.success_exit_codes_json
+        )
         updated = SavedScenarioRecord(
             scenario_id=scenario.scenario_id,
             collection_id=scenario.collection_id,
@@ -638,23 +656,10 @@ class OperatorStore:
             execution_command=(
                 execution_command if execution_command is not None else scenario.execution_command
             ),
-            execution_timeout_ms=max(
-                1,
-                int(
-                    execution_timeout_ms
-                    if execution_timeout_ms is not None
-                    else scenario.execution_timeout_ms
-                ),
-            ),
+            execution_timeout_ms=self._normalize_execution_timeout_ms(timeout_raw),
             execution_cwd=execution_cwd if execution_cwd is not None else scenario.execution_cwd,
-            execution_env_json=(
-                execution_env_json if execution_env_json is not None else scenario.execution_env_json
-            ),
-            success_exit_codes_json=(
-                success_exit_codes_json
-                if success_exit_codes_json is not None
-                else scenario.success_exit_codes_json
-            ),
+            execution_env_json=self._normalize_execution_env_json(env_json_raw),
+            success_exit_codes_json=self._normalize_success_exit_codes_json(success_codes_raw),
             created_at=scenario.created_at,
         )
         with self._connect() as conn:
@@ -687,6 +692,48 @@ class OperatorStore:
                 details={"name": updated.name},
             )
         return updated
+
+    @staticmethod
+    def _normalize_execution_timeout_ms(value: object) -> int:
+        raw_value = value if value not in (None, "") else 30000
+        try:
+            timeout_ms = int(raw_value)
+        except Exception as exc:
+            raise ValueError("execution_timeout_ms must be a positive integer") from exc
+        if timeout_ms <= 0:
+            raise ValueError("execution_timeout_ms must be a positive integer")
+        return timeout_ms
+
+    @staticmethod
+    def _normalize_execution_env_json(raw: object) -> str:
+        text = "{}" if raw in (None, "") else str(raw)
+        try:
+            parsed = json.loads(text)
+        except Exception as exc:
+            raise ValueError("execution_env_json must be a valid JSON object") from exc
+        if not isinstance(parsed, dict):
+            raise ValueError("execution_env_json must be a valid JSON object")
+        normalized = {str(key): str(value) for key, value in parsed.items()}
+        return json.dumps(normalized, separators=(",", ":"), sort_keys=True)
+
+    @staticmethod
+    def _normalize_success_exit_codes_json(raw: object) -> str:
+        text = "[0]" if raw in (None, "") else str(raw)
+        try:
+            parsed = json.loads(text)
+        except Exception as exc:
+            raise ValueError("success_exit_codes_json must be a valid JSON integer array") from exc
+        if not isinstance(parsed, list) or not parsed:
+            raise ValueError("success_exit_codes_json must be a non-empty JSON integer array")
+        normalized: list[int] = []
+        for token in parsed:
+            if isinstance(token, bool):
+                raise ValueError("success_exit_codes_json must contain integers only")
+            try:
+                normalized.append(int(token))
+            except Exception as exc:
+                raise ValueError("success_exit_codes_json must contain integers only") from exc
+        return json.dumps(normalized, separators=(",", ":"))
 
     def delete_saved_scenario(self, scenario_id: str, actor_id: str = "system") -> bool:
         with self._connect() as conn:

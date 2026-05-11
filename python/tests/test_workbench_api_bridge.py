@@ -228,3 +228,43 @@ def test_workbench_bridge_uses_isolated_store_paths(tmp_path):
     finally:
         os.environ.clear()
         os.environ.update(old_env)
+
+
+def test_workbench_bridge_rejects_invalid_execution_payload(tmp_path):
+    operator_db = tmp_path / "operator.db"
+    eval_db = tmp_path / "eval.db"
+    env = {
+        **os.environ,
+        "OPENLVM_OPERATOR_DB": str(operator_db),
+        "OPENLVM_EVAL_DB": str(eval_db),
+    }
+    old_env = dict(os.environ)
+    os.environ.update(env)
+    module = _load_bridge_module()
+
+    try:
+        actor_id = "alice#sess1"
+        workspace = _run_bridge(module, "create_workspace", ["Team Test", actor_id])
+        collection = _run_bridge(
+            module,
+            "create_collection",
+            [workspace["workspace_id"], "Collection A", actor_id],
+        )
+        with pytest.raises(ValueError, match="execution_env_json"):
+            module._save_scenario(
+                [
+                    collection["collection_id"],
+                    "bad-env",
+                    "examples/swarm.yaml",
+                    "payload",
+                    actor_id,
+                    "",
+                    "30000",
+                    "",
+                    "[]",
+                    "[0]",
+                ]
+            )
+    finally:
+        os.environ.clear()
+        os.environ.update(old_env)

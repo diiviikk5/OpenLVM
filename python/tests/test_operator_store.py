@@ -1,3 +1,4 @@
+import pytest
 from openlvm.operator_store import OperatorStore
 
 
@@ -50,6 +51,39 @@ def test_operator_store_persists_scenario_execution_fields(tmp_path):
     assert listed[0].execution_env_json == '{"OPENLVM_TEST":"2"}'
     assert listed[0].success_exit_codes_json == "[0,2,3]"
     assert updated.execution_timeout_ms == 13000
+
+
+def test_operator_store_rejects_invalid_execution_json_fields(tmp_path):
+    store = OperatorStore(tmp_path / "operator_store.db")
+    workspace = store.create_workspace("Team A", "Primary workspace")
+    collection = store.create_collection(workspace.workspace_id, "Customer Support")
+
+    with pytest.raises(ValueError, match="execution_env_json"):
+        store.save_scenario(
+            collection.collection_id,
+            "bad-env",
+            "examples/swarm.yaml",
+            "bad env payload",
+            execution_env_json="[]",
+        )
+
+    with pytest.raises(ValueError, match="success_exit_codes_json"):
+        store.save_scenario(
+            collection.collection_id,
+            "bad-codes",
+            "examples/swarm.yaml",
+            "bad status payload",
+            success_exit_codes_json='["ok"]',
+        )
+
+    with pytest.raises(ValueError, match="execution_timeout_ms"):
+        store.save_scenario(
+            collection.collection_id,
+            "bad-timeout",
+            "examples/swarm.yaml",
+            "bad timeout payload",
+            execution_timeout_ms=0,
+        )
 
 
 def test_operator_store_updates_deletes_and_audits(tmp_path):
