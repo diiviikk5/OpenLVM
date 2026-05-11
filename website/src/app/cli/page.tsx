@@ -20,7 +20,7 @@ const COMMANDS = [
   {
     title: "Arena Scenario Run",
     command:
-      "python -m openlvm.cli arena-run --agent-address <pubkey> --scenario <path/to/scenario.json> --wallet-provider embedded",
+      "python -m openlvm.cli arena-run --agent <pubkey> --scenario <path/to/scenario.json> --wallet-provider embedded",
     note: "Run a Solana Arena scenario with onchain intent metadata generation.",
   },
 ];
