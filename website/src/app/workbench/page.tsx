@@ -109,6 +109,49 @@ type ArenaReadiness = {
   cluster: string;
   bridge_script: string;
   reasons: string[];
+  readiness_score?: number;
+};
+type ArenaReadinessPlan = {
+  ok: boolean;
+  readiness_score: number;
+  action_plan: Array<{
+    priority: number;
+    title: string;
+    command: string;
+  }>;
+};
+type ArenaReleaseReadiness = {
+  decision: "go" | "hold" | "blocked";
+  decision_reason: string;
+  summary: {
+    ci_gate_ok: boolean;
+    score_ok: boolean;
+    real_submission_ok: boolean;
+    integration_ok: boolean;
+    ready_integrations: number;
+    total_integrations: number;
+    ready_percent: number;
+  };
+  blockers: Array<{
+    id: string;
+    title: string;
+    command: string;
+    detail?: string;
+  }>;
+};
+type ArenaIntegrationHub = {
+  total: number;
+  ready: number;
+  ready_percent: number;
+  integrations: Array<{
+    id: string;
+    name: string;
+    kind: string;
+    status: string;
+    required_tools: string[];
+    ready: boolean;
+    missing_tools: string[];
+  }>;
 };
 type RunInspection = {
   run: {
@@ -230,6 +273,9 @@ export default function WorkbenchPage() {
   const [arenaRequireRealSubmission, setArenaRequireRealSubmission] = useState(false);
   const [arenaCluster, setArenaCluster] = useState("devnet");
   const [arenaReadiness, setArenaReadiness] = useState<ArenaReadiness | null>(null);
+  const [arenaReadinessPlan, setArenaReadinessPlan] = useState<ArenaReadinessPlan | null>(null);
+  const [arenaReleaseReadiness, setArenaReleaseReadiness] = useState<ArenaReleaseReadiness | null>(null);
+  const [arenaIntegrationHub, setArenaIntegrationHub] = useState<ArenaIntegrationHub | null>(null);
 
   const [workspaceName, setWorkspaceName] = useState("");
   const [collectionWorkspace, setCollectionWorkspace] = useState("");
@@ -272,6 +318,20 @@ export default function WorkbenchPage() {
     setArenaReadiness(data);
   };
 
+  const loadArenaStatusPanels = async () => {
+    const [planRes, releaseRes, hubRes] = await Promise.all([
+      fetch("/api/workbench/arena/readiness-plan", { cache: "no-store" }),
+      fetch("/api/workbench/arena/release-readiness", { cache: "no-store" }),
+      fetch("/api/workbench/arena/integrations", { cache: "no-store" }),
+    ]);
+    const planData = (await planRes.json()) as ArenaReadinessPlan & { error?: string };
+    if (planRes.ok && !planData.error) setArenaReadinessPlan(planData);
+    const releaseData = (await releaseRes.json()) as ArenaReleaseReadiness & { error?: string };
+    if (releaseRes.ok && !releaseData.error) setArenaReleaseReadiness(releaseData);
+    const hubData = (await hubRes.json()) as ArenaIntegrationHub & { error?: string };
+    if (hubRes.ok && !hubData.error) setArenaIntegrationHub(hubData);
+  };
+
   useEffect(() => {
     void (async () => {
       try {
@@ -291,6 +351,7 @@ export default function WorkbenchPage() {
         if (readiness.ok && !readinessData.error) {
           setArenaReadiness(readinessData);
         }
+        await loadArenaStatusPanels();
         if (data.workspaces[0]) {
           setCollectionWorkspace(data.workspaces[0].workspace_id);
           setMemberWorkspace(data.workspaces[0].workspace_id);
@@ -869,6 +930,7 @@ export default function WorkbenchPage() {
       });
       await load();
       await loadArenaReadiness();
+      await loadArenaStatusPanels();
       setMsg(`Arena run complete: ${result.arena_run_id}`);
     } catch (e) {
       setError(String(e));
@@ -909,6 +971,7 @@ export default function WorkbenchPage() {
       if (!res.ok || data.error) throw new Error(data.error || "arena intent submit failed");
       await load();
       await loadArenaReadiness();
+      await loadArenaStatusPanels();
       setMsg(`Arena intent submitted: ${data.onchain_submission?.signature || arenaRunId}`);
     } catch (e) {
       setError(String(e));
@@ -1469,7 +1532,14 @@ export default function WorkbenchPage() {
           <button
             className="mt-1 border border-border-dark px-2 py-1 rounded"
             onClick={() => {
-              void loadArenaReadiness().catch((e) => setError(String(e)));
+              void (async () => {
+                try {
+                  await loadArenaReadiness();
+                  await loadArenaStatusPanels();
+                } catch (e) {
+                  setError(String(e));
+                }
+              })();
             }}
           >
             Refresh Readiness
@@ -1491,6 +1561,55 @@ export default function WorkbenchPage() {
           />
           require real submission (fail on local stub)
         </label>
+        <div className="mt-3 grid gap-3 md:grid-cols-3">
+          <div className="border border-border-dark rounded p-3 text-xs">
+            <p className="text-warm-silver">Release Decision</p>
+            <p className="mt-1 text-base uppercase">
+              {arenaReleaseReadiness?.decision || "unknown"}
+            </p>
+            <p className="mt-1 text-warm-silver">
+              {arenaReleaseReadiness?.decision_reason || "Run readiness refresh to load latest status."}
+            </p>
+            {arenaReleaseReadiness?.summary && (
+              <p className="mt-2 text-warm-silver">
+                integrations {arenaReleaseReadiness.summary.ready_integrations}/{arenaReleaseReadiness.summary.total_integrations}
+                {" "}({arenaReleaseReadiness.summary.ready_percent.toFixed(2)}%)
+              </p>
+            )}
+          </div>
+          <div className="border border-border-dark rounded p-3 text-xs">
+            <p className="text-warm-silver">Readiness Plan</p>
+            <p className="mt-1">score {arenaReadinessPlan?.readiness_score ?? arenaReadiness?.readiness_score ?? 0}</p>
+            <div className="mt-2 space-y-1">
+              {(arenaReadinessPlan?.action_plan || []).slice(0, 3).map((step) => (
+                <div key={`${step.priority}-${step.command}`} className="border border-border-dark rounded p-2">
+                  <p className="text-warm-silver">P{step.priority} {step.title}</p>
+                  <code>{step.command}</code>
+                </div>
+              ))}
+              {arenaReadinessPlan && arenaReadinessPlan.action_plan.length === 0 && (
+                <p className="text-accent-emerald">No blockers in current readiness plan.</p>
+              )}
+            </div>
+          </div>
+          <div className="border border-border-dark rounded p-3 text-xs">
+            <p className="text-warm-silver">Integration Hub</p>
+            <p className="mt-1">
+              ready {arenaIntegrationHub?.ready ?? 0}/{arenaIntegrationHub?.total ?? 0}
+              {" "}({arenaIntegrationHub?.ready_percent?.toFixed(2) ?? "0.00"}%)
+            </p>
+            <div className="mt-2 space-y-1 max-h-36 overflow-auto">
+              {(arenaIntegrationHub?.integrations || []).map((integration) => (
+                <div key={integration.id} className="flex items-center justify-between border border-border-dark rounded p-2">
+                  <span>{integration.id}</span>
+                  <span className={integration.ready ? "text-accent-emerald" : "text-coral"}>
+                    {integration.ready ? "ready" : "missing"}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
         <div className="space-y-2 text-sm max-h-56 overflow-auto mt-3">
           {(overview?.arena_runs || []).map((row) => (
             <div key={row.arena_run_id} className="flex items-center justify-between border border-border-dark rounded p-2">

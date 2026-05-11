@@ -761,6 +761,16 @@ def _arena_release_readiness(args: list[str]) -> dict:
     )
 
 
+def _arena_integration_hub(args: list[str]) -> dict:
+    if len(args) < 1:
+        raise ValueError("actor_id is required")
+    from openlvm.cli import _integration_hub_payload
+
+    actor_id = args[0]
+    _require_authenticated_actor(actor_id)
+    return _integration_hub_payload()
+
+
 def _arena_intent(args: list[str]) -> dict:
     if len(args) < 2:
         raise ValueError("arena_run_id and actor_id are required")
@@ -896,6 +906,8 @@ def _main() -> int:
             result = _arena_readiness_plan(args)
         elif command == "arena_release_readiness":
             result = _arena_release_readiness(args)
+        elif command == "arena_integration_hub":
+            result = _arena_integration_hub(args)
         elif command == "arena_intent":
             result = _arena_intent(args)
         elif command == "arena_submit_intent":
