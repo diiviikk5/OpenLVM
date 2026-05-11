@@ -218,6 +218,7 @@ function HeroSection() {
     { label: "Workbench", href: "/workbench" },
     { label: "Runs", href: "/runs" },
     { label: "Solana", href: "/solana" },
+    { label: "CLI", href: "/cli" },
     { label: "GitHub", href: "https://github.com/diiviikk5/OpenLVM" },
   ];
 

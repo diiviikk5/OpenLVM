@@ -8,7 +8,7 @@ const footerLinks = {
   Product: [
     { label: "Features", href: "/#capabilities" },
     { label: "Architecture", href: "/solana" },
-    { label: "CLI Reference", href: "https://github.com/diiviikk5/OpenLVM#current-commands" },
+    { label: "CLI Reference", href: "/cli" },
     { label: "Comparison", href: "/workbench#compare-results" },
   ],
   Resources: [
@@ -85,7 +85,7 @@ export default function Footer() {
         {/* Bottom */}
         <div className="pt-8 border-t border-border-dark flex flex-col sm:flex-row justify-between items-center gap-4">
           <p className="text-[13px] text-stone-gray">
-            © {new Date().getFullYear()} OpenLVM Contributors. Apache 2.0 License.
+            {"\u00A9"} {new Date().getFullYear()} OpenLVM Contributors. Apache 2.0 License.
           </p>
           <div className="flex items-center gap-1.5 text-[12px] text-stone-gray">
             <span>Built with</span>

@@ -11,7 +11,7 @@ const navLinks = [
   { label: "How It Works", href: "/runs" },
   { label: "Architecture", href: "/solana" },
   { label: "Workbench", href: "/workbench" },
-  { label: "CLI", href: "/solana" },
+  { label: "CLI", href: "/cli" },
   { label: "Comparison", href: "/workbench#compare-results" },
 ];
 
