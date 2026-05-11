@@ -518,6 +518,68 @@ export default function WorkbenchPage() {
     setScenarioSuccessExitCodesJson(s.success_exit_codes_json || "[0]");
   };
 
+  const resetScenarioEditor = () => {
+    setScenarioEditId("");
+    setScenarioName("");
+    setScenarioInput("");
+    setScenarioConfig("examples/swarm.yaml");
+    setScenarioExecutionCommand("");
+    setScenarioExecutionTimeoutMs("30000");
+    setScenarioExecutionCwd("");
+    setScenarioExecutionEnvJson("{}");
+    setScenarioSuccessExitCodesJson("[0]");
+  };
+
+  const saveScenarioRecord = async () => {
+    const timeout = Number.parseInt(scenarioExecutionTimeoutMs, 10);
+    if (Number.isNaN(timeout) || timeout < 1) {
+      setError("Execution timeout must be a positive integer");
+      return;
+    }
+    let parsedEnv: unknown;
+    let parsedCodes: unknown;
+    try {
+      parsedEnv = JSON.parse(scenarioExecutionEnvJson);
+    } catch {
+      setError("Execution env JSON must be valid JSON");
+      return;
+    }
+    try {
+      parsedCodes = JSON.parse(scenarioSuccessExitCodesJson);
+    } catch {
+      setError("Success exit codes JSON must be valid JSON");
+      return;
+    }
+    if (!parsedEnv || typeof parsedEnv !== "object" || Array.isArray(parsedEnv)) {
+      setError("Execution env JSON must be an object");
+      return;
+    }
+    if (!Array.isArray(parsedCodes) || parsedCodes.some((token) => !Number.isInteger(token))) {
+      setError("Success exit codes JSON must be an integer array");
+      return;
+    }
+
+    const payload = {
+      name: scenarioName,
+      config_path: scenarioConfig,
+      input_text: scenarioInput,
+      execution_command: scenarioExecutionCommand,
+      execution_timeout_ms: timeout,
+      execution_cwd: scenarioExecutionCwd,
+      execution_env_json: JSON.stringify(parsedEnv),
+      success_exit_codes_json: JSON.stringify(parsedCodes),
+    };
+
+    if (scenarioEditId) {
+      await postJson("/api/workbench/scenario", { scenario_id: scenarioEditId, ...payload }, "PATCH");
+    } else {
+      await postJson("/api/workbench/scenario", { collection_id: scenarioCollection, ...payload });
+    }
+    resetScenarioEditor();
+    await load();
+    setMsg("Scenario saved");
+  };
+
   const ensureQuickCollection = async (): Promise<string> => {
     if (selectedCollection) return selectedCollection;
     const current = await fetchOverview();
@@ -1242,8 +1304,8 @@ export default function WorkbenchPage() {
               />
             </div>
             <div className="flex gap-2">
-              <button className="bg-terracotta px-3 py-1 rounded disabled:opacity-50" disabled={!canEditScenarioCollection} onClick={async () => { try { const timeout = Number.parseInt(scenarioExecutionTimeoutMs, 10); if (Number.isNaN(timeout) || timeout < 1) { setError("Execution timeout must be a positive integer"); return; } if (scenarioEditId) { await postJson("/api/workbench/scenario", { scenario_id: scenarioEditId, name: scenarioName, config_path: scenarioConfig, input_text: scenarioInput, execution_command: scenarioExecutionCommand, execution_timeout_ms: timeout, execution_cwd: scenarioExecutionCwd, execution_env_json: scenarioExecutionEnvJson, success_exit_codes_json: scenarioSuccessExitCodesJson }, "PATCH"); } else { await postJson("/api/workbench/scenario", { collection_id: scenarioCollection, name: scenarioName, config_path: scenarioConfig, input_text: scenarioInput, execution_command: scenarioExecutionCommand, execution_timeout_ms: timeout, execution_cwd: scenarioExecutionCwd, execution_env_json: scenarioExecutionEnvJson, success_exit_codes_json: scenarioSuccessExitCodesJson }); } setScenarioEditId(""); setScenarioName(""); setScenarioInput(""); setScenarioConfig("examples/swarm.yaml"); setScenarioExecutionCommand(""); setScenarioExecutionTimeoutMs("30000"); setScenarioExecutionCwd(""); setScenarioExecutionEnvJson("{}"); setScenarioSuccessExitCodesJson("[0]"); await load(); setMsg("Scenario saved"); } catch (e) { setError(String(e)); } }}>{scenarioEditId ? "Update" : "Save"}</button>
-              {scenarioEditId && <button className="border border-border-dark px-3 py-1 rounded" onClick={() => { setScenarioEditId(""); setScenarioName(""); setScenarioInput(""); setScenarioConfig("examples/swarm.yaml"); setScenarioExecutionCommand(""); setScenarioExecutionTimeoutMs("30000"); setScenarioExecutionCwd(""); setScenarioExecutionEnvJson("{}"); setScenarioSuccessExitCodesJson("[0]"); }}>Cancel</button>}
+              <button className="bg-terracotta px-3 py-1 rounded disabled:opacity-50" disabled={!canEditScenarioCollection} onClick={async () => { try { await saveScenarioRecord(); } catch (e) { setError(String(e)); } }}>{scenarioEditId ? "Update" : "Save"}</button>
+              {scenarioEditId && <button className="border border-border-dark px-3 py-1 rounded" onClick={resetScenarioEditor}>Cancel</button>}
             </div>
           </div>
         </section>
