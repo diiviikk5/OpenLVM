@@ -1,6 +1,8 @@
 from pathlib import Path
+import sys
 
 from openlvm.eval_store import EvalStore
+from openlvm.models import AgentConfig, ScenarioConfig, TestSuiteConfig
 from openlvm.operator_store import OperatorStore
 from openlvm.orchestrator import TestOrchestrator
 from openlvm.runtime import SimulatedOpenLVMRuntime
@@ -95,3 +97,57 @@ def test_orchestrator_runs_saved_collection(tmp_path):
     assert run.metadata["collection"]["collection_id"] == collection.collection_id
     assert run.metadata["collection"]["collection_name"] == "Support"
     assert eval_store.get_run(run.run_id).run_id == run.run_id
+
+
+def test_orchestrator_executes_scenario_command(tmp_path):
+    orchestrator = TestOrchestrator(
+        runtime=SimulatedOpenLVMRuntime(),
+        eval_store=EvalStore(tmp_path / "eval_store.db"),
+    )
+    config = TestSuiteConfig(
+        name="command-suite",
+        agents={
+            "runner": AgentConfig(entry="agents/runner.py", capabilities=["llm_call"]),
+        },
+        scenarios={
+            "exec_pass": ScenarioConfig(
+                input="run command",
+                execution_command=f'"{sys.executable}" -c "print(\'openlvm-real-exec\')"',
+            )
+        },
+    )
+
+    run = orchestrator.run_test_suite(config, scenarios=1)
+
+    result = run.results[0]
+    assert result.status == "passed"
+    assert result.execution["success"] is True
+    assert "openlvm-real-exec" in result.execution["stdout"]
+    assert result.metrics["execution_exit_code"] == 0.0
+
+
+def test_orchestrator_marks_failed_when_scenario_command_fails(tmp_path):
+    orchestrator = TestOrchestrator(
+        runtime=SimulatedOpenLVMRuntime(),
+        eval_store=EvalStore(tmp_path / "eval_store.db"),
+    )
+    config = TestSuiteConfig(
+        name="command-suite",
+        agents={
+            "runner": AgentConfig(entry="agents/runner.py", capabilities=["llm_call"]),
+        },
+        scenarios={
+            "exec_fail": ScenarioConfig(
+                input="run command",
+                execution_command=f'"{sys.executable}" -c "import sys; sys.exit(3)"',
+            )
+        },
+    )
+
+    run = orchestrator.run_test_suite(config, scenarios=1)
+
+    result = run.results[0]
+    assert result.status == "failed"
+    assert run.summary["failed"] == 1
+    assert result.execution["success"] is False
+    assert any("exited with code 3" in warning for warning in result.warnings)

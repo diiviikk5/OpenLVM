@@ -3,6 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import subprocess
+import tempfile
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -48,6 +52,11 @@ class TestOrchestrator:
             resolved = Path(config)
             config_path = resolved
             config = load_config(resolved)
+        suite_dir = (
+            Path(config_path).resolve().parent
+            if config_path is not None
+            else Path.cwd()
+        )
 
         started_at = self._timestamp()
         run_id = self.eval_store.new_run_id()
@@ -71,6 +80,7 @@ class TestOrchestrator:
 
         for index, fork_id in enumerate(fork_ids):
             scenario_name, scenario = scenario_defs[index % len(scenario_defs)]
+            execution = self._execute_scenario(scenario, suite_dir=suite_dir)
             chaos_effects = self._collect_chaos_effects(
                 active_chaos_targets,
                 fork_id=fork_id,
@@ -79,14 +89,24 @@ class TestOrchestrator:
             fork_effect = chaos_effects.get("__fork__", {})
             network_delay_ms = int(fork_effect.get("delay_ms", 0))
             warnings = self._collect_warnings(config, scenario_name, chaos_effects, chaos_mode)
+            warnings.extend(execution.get("warnings", []))
             warnings_total += len(warnings)
-            score = self._score_result(network_delay_ms, warnings)
-            status = "passed" if score >= 0.75 else "warning"
-            agent_output = self._build_agent_output(scenario.input, network_delay_ms, warnings)
+            score = self._score_result(network_delay_ms, warnings, execution)
+            status = self._status_from_result(score, execution)
+            agent_output = execution.get("output", "") or self._build_agent_output(
+                scenario.input,
+                network_delay_ms,
+                warnings,
+            )
             deepeval_metrics = self._run_deepeval_metrics(config, agent_output)
             trace_record = self.openllmetry_adapter.instrument_fork(fork_id)
             trace_record["chaos_effects"] = chaos_effects
             trace_record["scenario_name"] = scenario_name
+            trace_record["execution"] = {
+                key: value
+                for key, value in execution.items()
+                if key in {"command", "cwd", "exit_code", "duration_ms", "timed_out", "success"}
+            }
             trace_records.append(trace_record)
             promptfoo_outputs.append(agent_output)
             results.append(
@@ -104,13 +124,20 @@ class TestOrchestrator:
                         "task_completion": score,
                         "tool_correctness": max(score - 0.05, 0.0),
                         "plan_adherence": max(score - 0.03, 0.0),
+                        "execution_exit_code": float(
+                            execution["exit_code"]
+                            if execution.get("exit_code") is not None
+                            else 0
+                        ),
                         **deepeval_metrics,
                     },
+                    execution=execution,
                 )
             )
 
         passed = sum(1 for result in results if result.status == "passed")
         warning_runs = sum(1 for result in results if result.status == "warning")
+        failed_runs = sum(1 for result in results if result.status == "failed")
         promptfoo_summary = self._run_promptfoo(config, promptfoo_outputs)
         run = EvalRun(
             run_id=run_id,
@@ -127,7 +154,7 @@ class TestOrchestrator:
             summary={
                 "passed": passed,
                 "warnings": warning_runs,
-                "failed": 0,
+                "failed": failed_runs,
                 "warning_events": warnings_total,
             },
             agents=registered_agents,
@@ -308,12 +335,26 @@ class TestOrchestrator:
         return warnings
 
     @staticmethod
-    def _score_result(network_delay_ms: int, warnings: list[str]) -> float:
+    def _score_result(
+        network_delay_ms: int,
+        warnings: list[str],
+        execution: dict,
+    ) -> float:
         score = 0.96
         if network_delay_ms > 0:
             score -= min(network_delay_ms / 5000.0, 0.2)
         score -= len(warnings) * 0.03
+        if execution.get("command"):
+            score += 0.02 if execution.get("success") else -0.35
+            if execution.get("timed_out"):
+                score -= 0.1
         return round(max(score, 0.0), 2)
+
+    @staticmethod
+    def _status_from_result(score: float, execution: dict) -> str:
+        if execution.get("command") and not execution.get("success", False):
+            return "failed"
+        return "passed" if score >= 0.75 else "warning"
 
     @staticmethod
     def _timestamp() -> str:
@@ -324,6 +365,83 @@ class TestOrchestrator:
         suffix = f" delay={network_delay_ms}ms" if network_delay_ms else ""
         warning_text = f" warnings={','.join(warnings)}" if warnings else ""
         return f"processed input={user_input!r}{suffix}{warning_text}"
+
+    @staticmethod
+    def _execute_scenario(scenario: ScenarioConfig, *, suite_dir: Path) -> dict:
+        command = (scenario.execution_command or "").strip()
+        if not command:
+            return {}
+
+        timeout_ms = max(1, int(scenario.execution_timeout_ms or 30_000))
+        cwd = (
+            (suite_dir / scenario.execution_cwd).resolve()
+            if scenario.execution_cwd
+            else suite_dir
+        )
+        env = os.environ.copy()
+        env.update({str(key): str(value) for key, value in scenario.execution_env.items()})
+        expected_codes = set(scenario.success_exit_codes or [0])
+        started = time.perf_counter()
+        try:
+            with tempfile.NamedTemporaryFile(mode="w+b", delete=True) as stdout_file, tempfile.NamedTemporaryFile(
+                mode="w+b", delete=True
+            ) as stderr_file:
+                completed = subprocess.run(
+                    command,
+                    shell=True,
+                    cwd=str(cwd),
+                    env=env,
+                    stdin=subprocess.DEVNULL,
+                    stdout=stdout_file,
+                    stderr=stderr_file,
+                    timeout=timeout_ms / 1000.0,
+                    check=False,
+                )
+                stdout_file.flush()
+                stderr_file.flush()
+                stdout_file.seek(0)
+                stderr_file.seek(0)
+                stdout = stdout_file.read().decode("utf-8", errors="replace")
+                stderr = stderr_file.read().decode("utf-8", errors="replace")
+        except subprocess.TimeoutExpired as exc:
+            duration_ms = int((time.perf_counter() - started) * 1000)
+            return {
+                "command": command,
+                "cwd": str(cwd),
+                "timed_out": True,
+                "duration_ms": duration_ms,
+                "exit_code": None,
+                "success": False,
+                "stdout": (exc.stdout or ""),
+                "stderr": (exc.stderr or ""),
+                "output": (exc.stdout or exc.stderr or ""),
+                "warnings": [f"execution timeout after {timeout_ms}ms for scenario command"],
+            }
+
+        duration_ms = int((time.perf_counter() - started) * 1000)
+        exit_code = int(completed.returncode)
+        success = exit_code in expected_codes
+        warnings: list[str] = []
+        if not success:
+            warnings.append(f"scenario command exited with code {exit_code}")
+        output = stdout if stdout.strip() else stderr
+        if scenario.expected_behavior and scenario.expected_behavior not in output:
+            warnings.append(
+                f"expected behavior marker not found in output: {scenario.expected_behavior}"
+            )
+            success = False
+        return {
+            "command": command,
+            "cwd": str(cwd),
+            "timed_out": False,
+            "duration_ms": duration_ms,
+            "exit_code": exit_code,
+            "success": success,
+            "stdout": stdout,
+            "stderr": stderr,
+            "output": output,
+            "warnings": warnings,
+        }
 
     def _safe_parent_lookup(self, agent_id: int) -> int | None:
         try:

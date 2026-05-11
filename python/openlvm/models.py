@@ -23,6 +23,11 @@ class ScenarioConfig(BaseModel):
     input: str
     expected_tools: List[str] = Field(default_factory=list)
     expected_behavior: Optional[str] = None
+    execution_command: Optional[str] = None
+    execution_timeout_ms: int = 30_000
+    execution_cwd: Optional[str] = None
+    execution_env: Dict[str, str] = Field(default_factory=dict)
+    success_exit_codes: List[int] = Field(default_factory=lambda: [0])
 
 class ChaosParams(BaseModel):
     delay_ms: Optional[int] = None
@@ -84,6 +89,7 @@ class ScenarioRunResult(BaseModel):
     warnings: List[str] = Field(default_factory=list)
     metrics: Dict[str, float] = Field(default_factory=dict)
     chaos_effects: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
+    execution: Dict[str, Any] = Field(default_factory=dict)
 
 
 class AgentRunSummary(BaseModel):
