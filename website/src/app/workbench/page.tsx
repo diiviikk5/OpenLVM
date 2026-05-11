@@ -174,6 +174,16 @@ type RunInspection = {
       score: number;
       network_delay_ms: number;
       warnings: string[];
+      execution?: {
+        command?: string;
+        cwd?: string;
+        exit_code?: number | null;
+        duration_ms?: number;
+        timed_out?: boolean;
+        success?: boolean;
+        stdout?: string;
+        stderr?: string;
+      };
     }>;
   };
   trace_summary: {
@@ -264,6 +274,7 @@ export default function WorkbenchPage() {
   const [traceEventTypeFilter, setTraceEventTypeFilter] = useState("all");
   const [traceEventSearch, setTraceEventSearch] = useState("");
   const [selectedTraceKey, setSelectedTraceKey] = useState("");
+  const [expandedExecutionRow, setExpandedExecutionRow] = useState("");
   const [pruneKeepLatest, setPruneKeepLatest] = useState("10");
   const [quickPrompt, setQuickPrompt] = useState("");
   const [quickConfigPath, setQuickConfigPath] = useState("examples/swarm.yaml");
@@ -532,6 +543,31 @@ export default function WorkbenchPage() {
     return collectionId;
   };
 
+  const runCollectionSuite = async (options?: {
+    rerunFailedFromRunId?: string;
+    rerunStatuses?: string[];
+    messagePrefix?: string;
+  }) => {
+    try {
+      setIsRunning(true);
+      const run = await postJson<Run>("/api/workbench/run", {
+        collection_id: selectedCollection,
+        rerun_failed_from_run_id: options?.rerunFailedFromRunId || "",
+        rerun_statuses: options?.rerunStatuses || ["failed"],
+      });
+      setLastRunId(run.run_id);
+      setSelectedRun(run.run_id);
+      setBaselineRun(run.run_id);
+      await load();
+      const prefix = options?.messagePrefix || "Run complete";
+      setMsg(`${prefix}: ${run.run_id}`);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setIsRunning(false);
+    }
+  };
+
   const runQuickTest = async () => {
     if (!quickPrompt.trim()) {
       setError("Enter a prompt first");
@@ -564,6 +600,7 @@ export default function WorkbenchPage() {
 
   useEffect(() => {
     if (!selectedRun) return;
+    setExpandedExecutionRow("");
     void (async () => {
       try {
         const res = await fetch(`/api/workbench/run?run_id=${encodeURIComponent(selectedRun)}`, { cache: "no-store" });
@@ -1284,7 +1321,26 @@ export default function WorkbenchPage() {
           <select className="bg-dark-surface p-2 rounded" value={selectedRun} onChange={(e) => setSelectedRun(e.target.value)}>
             {(overview?.recent_runs || []).map((r) => <option key={r.run_id} value={r.run_id}>{r.run_id}</option>)}
           </select>
-          <button className="bg-terracotta px-3 py-1 rounded disabled:opacity-50" disabled={isRunning || !canEditSelectedCollection} onClick={async () => { try { setIsRunning(true); const run = await postJson<Run>("/api/workbench/run", { collection_id: selectedCollection }); setLastRunId(run.run_id); setSelectedRun(run.run_id); setBaselineRun(run.run_id); await load(); setMsg(`Run complete: ${run.run_id}`); } catch (e) { setError(String(e)); } finally { setIsRunning(false); } }}>{isRunning ? "Running..." : "Run Collection"}</button>
+          <button
+            className="bg-terracotta px-3 py-1 rounded disabled:opacity-50"
+            disabled={isRunning || !canEditSelectedCollection}
+            onClick={() => void runCollectionSuite()}
+          >
+            {isRunning ? "Running..." : "Run Collection"}
+          </button>
+          <button
+            className="border border-border-dark px-3 py-1 rounded disabled:opacity-50"
+            disabled={isRunning || !canEditSelectedCollection || !selectedRun}
+            onClick={() =>
+              void runCollectionSuite({
+                rerunFailedFromRunId: selectedRun,
+                rerunStatuses: ["failed"],
+                messagePrefix: "Re-run failed scenarios complete",
+              })
+            }
+          >
+            Re-run Failed
+          </button>
         </div>
         <div className="mt-2 p-2 border border-border-dark rounded">
           <p className="text-sm text-warm-silver mb-1">Choose baseline(s)</p>
@@ -1388,6 +1444,36 @@ export default function WorkbenchPage() {
                 <span className="text-warm-silver"> | score {result.score.toFixed(2)}</span>
                 <span className="text-warm-silver"> | delay {result.network_delay_ms}ms</span>
                 {result.warnings.length ? <span className="text-coral"> | {result.warnings[0]}</span> : null}
+                {result.execution?.command ? (
+                  <span className="text-warm-silver">
+                    {" "} | exit {String(result.execution.exit_code ?? "n/a")} | {result.execution.duration_ms ?? 0}ms
+                  </span>
+                ) : null}
+                {result.execution?.command ? (
+                  <button
+                    className="ml-2 border border-border-dark px-2 py-0.5 rounded text-xs"
+                    onClick={() => {
+                      const key = `${result.name}-${result.fork_id}`;
+                      setExpandedExecutionRow((prev) => (prev === key ? "" : key));
+                    }}
+                  >
+                    {expandedExecutionRow === `${result.name}-${result.fork_id}` ? "Hide Exec" : "Show Exec"}
+                  </button>
+                ) : null}
+                {expandedExecutionRow === `${result.name}-${result.fork_id}` && result.execution?.command ? (
+                  <div className="mt-2 border border-border-dark rounded p-2 text-xs space-y-2">
+                    <div className="text-warm-silver">cmd: {result.execution.command}</div>
+                    <div className="text-warm-silver">cwd: {result.execution.cwd || "-"}</div>
+                    <div className="grid gap-2 md:grid-cols-2">
+                      <pre className="max-h-40 overflow-auto bg-dark-surface rounded p-2 whitespace-pre-wrap">
+                        {result.execution.stdout || "(no stdout)"}
+                      </pre>
+                      <pre className="max-h-40 overflow-auto bg-dark-surface rounded p-2 whitespace-pre-wrap">
+                        {result.execution.stderr || "(no stderr)"}
+                      </pre>
+                    </div>
+                  </div>
+                ) : null}
               </div>
             ))}
           </div>

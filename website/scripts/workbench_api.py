@@ -145,10 +145,30 @@ def _run_collection(args: list[str]) -> dict:
     chaos_mode = args[2] if len(args) > 2 and args[2] else None
     workspace_scope = args[3] if len(args) > 3 else ""
     actor_id = args[4] if len(args) > 4 else "system"
+    rerun_from_run_id = args[5] if len(args) > 5 and args[5] else ""
+    rerun_statuses_csv = args[6] if len(args) > 6 and args[6] else "failed"
     _require_authenticated_actor(actor_id)
     _assert_collection_access(collection_id, actor_id, "editor")
     if workspace_scope:
         _assert_collection_workspace(collection_id, workspace_scope)
+    scenario_names: list[str] | None = None
+    if rerun_from_run_id:
+        run = _eval_store().get_run(rerun_from_run_id)
+        statuses = {
+            token.strip().lower()
+            for token in rerun_statuses_csv.split(",")
+            if token.strip()
+        }
+        statuses = statuses or {"failed"}
+        scenario_names = [
+            result.name
+            for result in run.results
+            if str(result.status).lower() in statuses
+        ]
+        if not scenario_names:
+            raise ValueError(
+                f"No scenarios with status [{','.join(sorted(statuses))}] found in run {rerun_from_run_id}"
+            )
     run = TestOrchestrator(
         eval_store=_eval_store(),
         operator_store=_operator_store(),
@@ -156,6 +176,7 @@ def _run_collection(args: list[str]) -> dict:
         collection_id,
         scenarios=scenarios,
         chaos_mode=chaos_mode,
+        scenario_names=scenario_names,
     )
     return run.model_dump()
 

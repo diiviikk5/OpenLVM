@@ -32,6 +32,8 @@ export async function POST(request: NextRequest) {
       collection_id?: string;
       scenarios?: number;
       chaos_mode?: string;
+      rerun_failed_from_run_id?: string;
+      rerun_statuses?: string[];
     };
     if (!payload.collection_id) {
       return contextError("collection_id is required", ctx, 400);
@@ -45,6 +47,8 @@ export async function POST(request: NextRequest) {
     args.push(payload.chaos_mode || "");
     args.push(ctx.workspaceId || "");
     args.push(ctx.actorId);
+    args.push(payload.rerun_failed_from_run_id || "");
+    args.push((payload.rerun_statuses || ["failed"]).join(","));
 
     const data = await runWorkbenchBridge("run_collection", args);
     if (typeof data === "object" && data && "error" in data) {

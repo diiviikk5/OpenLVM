@@ -55,6 +55,11 @@ def test_workbench_bridge_uses_isolated_store_paths(tmp_path):
                 "examples/swarm.yaml",
                 "hello from isolated bridge test",
                 actor_id,
+                "",
+                "30000",
+                "",
+                "{}",
+                "[0]",
             ],
         )
 
@@ -142,6 +147,65 @@ def test_workbench_bridge_uses_isolated_store_paths(tmp_path):
         submit_again = _run_bridge(module, "arena_submit_intent", [arena_run["arena_run_id"], actor_id])
         assert submit_again["already_submitted"] is True
         assert submit_again["onchain_submission"]["signature"] == submit_payload["onchain_submission"]["signature"]
+
+        exec_collection = _run_bridge(
+            module,
+            "create_collection",
+            [workspace["workspace_id"], "Exec Collection", actor_id],
+        )
+        _run_bridge(
+            module,
+            "save_scenario",
+            [
+                exec_collection["collection_id"],
+                "pass-cmd",
+                "examples/swarm.yaml",
+                "pass path",
+                actor_id,
+                'python -c "print(123)"',
+                "12000",
+                "",
+                "{}",
+                "[0]",
+            ],
+        )
+        _run_bridge(
+            module,
+            "save_scenario",
+            [
+                exec_collection["collection_id"],
+                "fail-cmd",
+                "examples/swarm.yaml",
+                "fail path",
+                actor_id,
+                'python -c "import sys; sys.exit(4)"',
+                "12000",
+                "",
+                "{}",
+                "[0]",
+            ],
+        )
+        exec_run = _run_bridge(
+            module,
+            "run_collection",
+            [exec_collection["collection_id"], "2", "", "", actor_id],
+        )
+        assert exec_run["summary"]["failed"] >= 1
+        rerun_failed = _run_bridge(
+            module,
+            "run_collection",
+            [
+                exec_collection["collection_id"],
+                "",
+                "",
+                "",
+                actor_id,
+                exec_run["run_id"],
+                "failed",
+            ],
+        )
+        assert rerun_failed["scenarios_executed"] == 1
+        assert rerun_failed["metadata"]["collection"]["scenario_names"] == ["fail-cmd"]
 
         strict_scenario_json = tmp_path / "arena-scenario-strict.json"
         strict_scenario_json.write_text(

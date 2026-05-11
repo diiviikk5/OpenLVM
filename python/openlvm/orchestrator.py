@@ -180,11 +180,18 @@ class TestOrchestrator:
         *,
         scenarios: Optional[int] = None,
         chaos_mode: Optional[str] = None,
+        scenario_names: Optional[list[str]] = None,
     ) -> EvalRun:
         collection_summary = self.operator_store.get_collection_summary(collection_id)
         saved_scenarios = collection_summary["scenarios"]
         if not saved_scenarios:
             raise ValueError(f"Collection has no saved scenarios: {collection_id}")
+        if scenario_names:
+            wanted = {name.strip() for name in scenario_names if str(name).strip()}
+            filtered = [entry for entry in saved_scenarios if entry["name"] in wanted]
+            if not filtered:
+                raise ValueError("No saved scenarios matched requested scenario_names")
+            saved_scenarios = filtered
 
         config_paths = {entry["config_path"] for entry in saved_scenarios}
         if len(config_paths) != 1:
@@ -222,6 +229,7 @@ class TestOrchestrator:
             "workspace_id": collection_summary["workspace"]["workspace_id"],
             "collection_name": collection_summary["collection"]["name"],
             "scenario_ids": [entry["scenario_id"] for entry in saved_scenarios],
+            "scenario_names": [entry["name"] for entry in saved_scenarios],
         }
         self.eval_store.store_run(run)
         return run
