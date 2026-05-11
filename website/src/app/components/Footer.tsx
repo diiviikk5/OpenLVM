@@ -6,22 +6,22 @@ import Link from "next/link";
 
 const footerLinks = {
   Product: [
-    { label: "Features", href: "#features" },
-    { label: "Architecture", href: "#architecture" },
-    { label: "CLI Reference", href: "#cli" },
-    { label: "Comparison", href: "#comparison" },
+    { label: "Features", href: "/#capabilities" },
+    { label: "Architecture", href: "/solana" },
+    { label: "CLI Reference", href: "https://github.com/diiviikk5/OpenLVM#current-commands" },
+    { label: "Comparison", href: "/workbench#compare-results" },
   ],
   Resources: [
-    { label: "Documentation", href: "#" },
-    { label: "Quickstart", href: "#quickstart" },
-    { label: "Examples", href: "#" },
-    { label: "Changelog", href: "#" },
+    { label: "Documentation", href: "https://github.com/diiviikk5/OpenLVM#readme" },
+    { label: "Quickstart", href: "/workbench#quick-run" },
+    { label: "Examples", href: "https://github.com/diiviikk5/OpenLVM/tree/master/examples" },
+    { label: "Changelog", href: "https://github.com/diiviikk5/OpenLVM/commits/master" },
   ],
   Community: [
-    { label: "GitHub", href: "https://github.com" },
-    { label: "Discord", href: "#" },
-    { label: "Twitter", href: "#" },
-    { label: "Contributing", href: "#" },
+    { label: "GitHub", href: "https://github.com/diiviikk5/OpenLVM" },
+    { label: "Discussions", href: "https://github.com/diiviikk5/OpenLVM/discussions" },
+    { label: "Issues", href: "https://github.com/diiviikk5/OpenLVM/issues" },
+    { label: "Contributing", href: "https://github.com/diiviikk5/OpenLVM/pulls" },
   ],
 };
 
@@ -45,14 +45,14 @@ export default function Footer() {
             </p>
             <div className="flex gap-2">
               <Link
-                href="https://github.com"
+                href="https://github.com/diiviikk5/OpenLVM"
                 target="_blank"
                 className="p-2 rounded-lg text-stone-gray hover:text-ivory hover:bg-near-black transition-colors"
               >
                 <GithubIcon className="w-4 h-4" />
               </Link>
               <Link
-                href="#"
+                href="https://github.com/diiviikk5/OpenLVM#readme"
                 className="p-2 rounded-lg text-stone-gray hover:text-ivory hover:bg-near-black transition-colors"
               >
                 <ExternalLink className="w-4 h-4" />

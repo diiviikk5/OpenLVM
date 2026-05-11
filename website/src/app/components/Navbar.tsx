@@ -7,12 +7,12 @@ import { GithubIcon } from "./icons";
 import Link from "next/link";
 
 const navLinks = [
-  { label: "Features", href: "#features" },
-  { label: "How It Works", href: "#how-it-works" },
-  { label: "Architecture", href: "#architecture" },
+  { label: "Features", href: "/#capabilities" },
+  { label: "How It Works", href: "/runs" },
+  { label: "Architecture", href: "/solana" },
   { label: "Workbench", href: "/workbench" },
-  { label: "CLI", href: "#cli" },
-  { label: "Comparison", href: "#comparison" },
+  { label: "CLI", href: "/solana" },
+  { label: "Comparison", href: "/workbench#compare-results" },
 ];
 
 export default function Navbar() {
@@ -71,7 +71,7 @@ export default function Navbar() {
             Star
           </Link>
           <Link
-            href="#quickstart"
+            href="/workbench#quick-run"
             className="flex items-center gap-2 px-4 py-2 text-[14px] font-medium text-ivory bg-terracotta rounded-xl hover:bg-coral transition-all duration-200 shadow-[0_0_0_1px_rgba(201,100,66,0.4)]"
           >
             Get Started
@@ -109,7 +109,7 @@ export default function Navbar() {
               ))}
               <div className="pt-3 border-t border-border-dark mt-2">
                 <Link
-                  href="#quickstart"
+                  href="/workbench#quick-run"
                   className="block text-center px-4 py-2.5 text-[14px] font-medium text-ivory bg-terracotta rounded-xl"
                 >
                   Get Started
