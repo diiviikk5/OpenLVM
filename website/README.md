@@ -1,49 +1,36 @@
-# OpenLVM Website
+This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
-This Next.js app is the OpenLVM website + workbench UI.
+## Getting Started
 
-## Run Locally
-
-From repo root:
+First, run the development server:
 
 ```bash
-npm --prefix website install
-npm --prefix website run dev
+npm run dev
+# or
+yarn dev
+# or
+pnpm dev
+# or
+bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
+Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
-## Page Map
+You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
-- `/` - Main landing page
-- `/runs` - Run workflow index page that deep-links to workbench sections
-- `/solana` - Solana arena + readiness flow overview
-- `/workbench` - Full OpenLVM workbench UI
+This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
-## Workbench Section Anchors
+## Learn More
 
-Use these deep links for demos/submission:
+To learn more about Next.js, take a look at the following resources:
 
-- `/workbench#quick-run`
-- `/workbench#workspace-members`
-- `/workbench#run-and-compare`
-- `/workbench#run-inspection`
-- `/workbench#compare-results`
-- `/workbench#compare-history`
-- `/workbench#solana-arena`
-- `/workbench#compare-artifacts`
-- `/workbench#audit-events`
+- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
+- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
 
-## Solana Readiness APIs
+You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
 
-- `GET /api/workbench/arena/readiness`
-- `GET /api/workbench/arena/readiness-plan`
-- `GET /api/workbench/arena/release-readiness`
-- `GET /api/workbench/arena/integrations`
+## Deploy on Vercel
 
-## Build Check
+The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
-```bash
-npm --prefix website run lint
-npm --prefix website run build
-```
+Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
