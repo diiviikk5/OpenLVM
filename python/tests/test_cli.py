@@ -92,6 +92,41 @@ def test_workspace_and_collection_commands(tmp_path, monkeypatch):
     assert store.list_collections(workspace_id)[0].name == "Support"
 
 
+def test_scenario_save_supports_execution_fields(tmp_path, monkeypatch):
+    store = OperatorStore(tmp_path / "operator_store.db")
+    monkeypatch.setattr("openlvm.cli.OperatorStore", lambda: store)
+    workspace = store.create_workspace("Team A")
+    collection = store.create_collection(workspace.workspace_id, "Support")
+    config_path = Path(__file__).resolve().parents[2] / "examples" / "swarm.yaml"
+
+    result = runner.invoke(
+        app,
+        [
+            "scenario-save",
+            collection.collection_id,
+            "exec-flow",
+            str(config_path),
+            "run command",
+            "--execution-command",
+            'python -c "print(123)"',
+            "--execution-timeout-ms",
+            "12000",
+            "--execution-cwd",
+            ".",
+            "--execution-env-json",
+            '{"OPENLVM_TEST":"1"}',
+            "--success-exit-codes-json",
+            "[0,2]",
+        ],
+    )
+    assert result.exit_code == 0
+    saved = store.list_saved_scenarios(collection.collection_id)[0]
+    assert saved.execution_command
+    assert saved.execution_timeout_ms == 12000
+    assert saved.execution_env_json == '{"OPENLVM_TEST":"1"}'
+    assert saved.success_exit_codes_json == "[0,2]"
+
+
 def test_collection_inspect_and_baseline_compare(tmp_path, monkeypatch):
     store = OperatorStore(tmp_path / "operator_store.db")
     eval_store = EvalStore(tmp_path / "eval_store.db")

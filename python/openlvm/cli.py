@@ -1211,9 +1211,44 @@ def scenario_save(
     name: str = typer.Argument(..., help="Scenario name"),
     config_path: Path = typer.Argument(..., help="Config path"),
     input_text: str = typer.Argument(..., help="Scenario input text"),
+    execution_command: str = typer.Option(
+        "",
+        "--execution-command",
+        help="Optional command to execute for this scenario",
+    ),
+    execution_timeout_ms: int = typer.Option(
+        30000,
+        "--execution-timeout-ms",
+        help="Timeout for execution command",
+    ),
+    execution_cwd: str = typer.Option(
+        "",
+        "--execution-cwd",
+        help="Optional working directory for execution command",
+    ),
+    execution_env_json: str = typer.Option(
+        "{}",
+        "--execution-env-json",
+        help="JSON object of environment variables for command execution",
+    ),
+    success_exit_codes_json: str = typer.Option(
+        "[0]",
+        "--success-exit-codes-json",
+        help="JSON array of accepted exit codes for command execution",
+    ),
 ):
     """Save a scenario to a collection."""
-    scenario = OperatorStore().save_scenario(collection_id, name, str(config_path), input_text)
+    scenario = OperatorStore().save_scenario(
+        collection_id,
+        name,
+        str(config_path),
+        input_text,
+        execution_command=execution_command,
+        execution_timeout_ms=execution_timeout_ms,
+        execution_cwd=execution_cwd,
+        execution_env_json=execution_env_json,
+        success_exit_codes_json=success_exit_codes_json,
+    )
     console.print(f"[green]Scenario saved:[/green] {scenario.scenario_id} {scenario.name}")
 
 
@@ -1225,8 +1260,16 @@ def scenario_list(collection_id: str = typer.Argument(..., help="Collection id")
     table.add_column("Scenario ID", style="cyan")
     table.add_column("Name", style="green")
     table.add_column("Config Path")
+    table.add_column("Exec", style="yellow")
+    table.add_column("Timeout", justify="right")
     for row in rows:
-        table.add_row(row.scenario_id, row.name, row.config_path)
+        table.add_row(
+            row.scenario_id,
+            row.name,
+            row.config_path,
+            row.execution_command or "-",
+            str(row.execution_timeout_ms),
+        )
     console.print(table)
 
 
