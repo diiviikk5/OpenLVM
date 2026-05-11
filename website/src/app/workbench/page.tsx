@@ -1008,7 +1008,7 @@ export default function WorkbenchPage() {
       {error && <p className="text-coral mb-3">{error}</p>}
       {msg && <p className="text-accent-emerald mb-3">{msg}</p>}
 
-      <section className="border border-border-dark rounded-xl p-4 mb-4">
+      <section id="quick-run" className="border border-border-dark rounded-xl p-4 mb-4 scroll-mt-20">
         <div className="flex items-center justify-between gap-2 mb-2">
           <h2 className="text-xl">Quick Run</h2>
           <button className="border border-border-dark px-3 py-1 rounded text-sm" onClick={() => setShowAdvanced((v) => !v)}>
@@ -1100,7 +1100,7 @@ export default function WorkbenchPage() {
         </section>
       </div>
 
-      <section className="border border-border-dark rounded-xl p-4 mt-4">
+      <section id="workspace-members" className="border border-border-dark rounded-xl p-4 mt-4 scroll-mt-20">
         <h2 className="text-xl mb-2">Workspace Members</h2>
         <div className="grid gap-2 md:grid-cols-4 mb-3">
           <select className="bg-dark-surface p-2 rounded" value={memberWorkspace} onChange={(e) => setMemberWorkspace(e.target.value)}>
@@ -1158,7 +1158,7 @@ export default function WorkbenchPage() {
       </>
       )}
 
-      <section className="border border-border-dark rounded-xl p-4 mt-4">
+      <section id="run-and-compare" className="border border-border-dark rounded-xl p-4 mt-4 scroll-mt-20">
         <h2 className="text-xl mb-2">Run and Compare</h2>
         <div className="grid gap-2 md:grid-cols-3">
           <select className="bg-dark-surface p-2 rounded" value={selectedCollection} onChange={(e) => setSelectedCollection(e.target.value)}>
@@ -1242,7 +1242,7 @@ export default function WorkbenchPage() {
       </section>
 
       {runInspection && (
-        <section className="border border-border-dark rounded-xl p-4 mt-4">
+        <section id="run-inspection" className="border border-border-dark rounded-xl p-4 mt-4 scroll-mt-20">
           <h2 className="text-xl mb-2">Run Inspection</h2>
           <p className="text-sm text-warm-silver">
             {runInspection.run.run_id} | backend {runInspection.trace_summary.runtime_backend} | traces {runInspection.trace_summary.trace_count} | warnings {runInspection.trace_summary.warning_events}
@@ -1365,7 +1365,7 @@ export default function WorkbenchPage() {
       )}
 
       {compare && (
-        <section className="border border-border-dark rounded-xl p-4 mt-4">
+        <section id="compare-results" className="border border-border-dark rounded-xl p-4 mt-4 scroll-mt-20">
           <div className="mb-2 flex items-center justify-between gap-2">
             <h2 className="text-xl">Multi-Baseline Compare</h2>
             <div className="flex gap-2">
@@ -1405,7 +1405,7 @@ export default function WorkbenchPage() {
         </section>
       )}
 
-      <section className="border border-border-dark rounded-xl p-4 mt-4">
+      <section id="compare-history" className="border border-border-dark rounded-xl p-4 mt-4 scroll-mt-20">
         <h2 className="text-xl mb-2">Compare History</h2>
         <div className="space-y-2 text-sm max-h-56 overflow-auto">
           {compareHistory.map((entry) => (
@@ -1434,7 +1434,7 @@ export default function WorkbenchPage() {
         </div>
       </section>
 
-      <section className="border border-border-dark rounded-xl p-4 mt-4">
+      <section id="solana-arena" className="border border-border-dark rounded-xl p-4 mt-4 scroll-mt-20">
         <h2 className="text-xl mb-2">Solana Arena (MVP)</h2>
         <div className="grid gap-2 md:grid-cols-3">
           <input
@@ -1549,7 +1549,7 @@ export default function WorkbenchPage() {
         </div>
       </section>
 
-      <section className="border border-border-dark rounded-xl p-4 mt-4">
+      <section id="compare-artifacts" className="border border-border-dark rounded-xl p-4 mt-4 scroll-mt-20">
         <div className="flex items-center justify-between gap-2 mb-2">
           <h2 className="text-xl">Saved Compare Artifacts</h2>
           <div className="flex gap-2 items-center">
@@ -1613,7 +1613,7 @@ export default function WorkbenchPage() {
         </div>
       </section>
 
-      <section className="border border-border-dark rounded-xl p-4 mt-4">
+      <section id="audit-events" className="border border-border-dark rounded-xl p-4 mt-4 scroll-mt-20">
         <h2 className="text-xl mb-2">Audit Events</h2>
         <div className="space-y-1 text-sm max-h-56 overflow-auto">
           {(overview?.audit_events || []).slice(0, 50).map((evt) => (

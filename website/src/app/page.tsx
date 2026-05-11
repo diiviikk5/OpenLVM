@@ -217,6 +217,7 @@ function HeroSection() {
     { label: "Capabilities", href: "#capabilities" },
     { label: "Workbench", href: "/workbench" },
     { label: "Runs", href: "/runs" },
+    { label: "Solana", href: "/solana" },
     { label: "GitHub", href: "https://github.com/diiviikk5/OpenLVM" },
   ];
 
@@ -391,7 +392,7 @@ function CapabilitiesSection() {
             transition={{ duration: 0.7, ease: "easeOut" }}
             className="text-sm font-body text-white/80 mb-6"
           >
-            // Capabilities
+            {"// Capabilities"}
           </motion.p>
           <motion.h2
             initial={{ filter: "blur(10px)", opacity: 0, y: 20 }}
